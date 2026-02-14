@@ -1,0 +1,63 @@
+:root { color-scheme: dark; }
+
+.nav-btn, .bottom-btn {
+  text-align: left;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.75rem;
+  color: #cbd5e1;
+}
+.nav-btn:hover, .bottom-btn:hover, .nav-btn.active, .bottom-btn.active { background: #1e293b; color: #fff; }
+
+.btn-primary {
+  background: #0ea5e9;
+  color: #fff;
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.95rem;
+  font-weight: 600;
+}
+.btn-primary:hover { background: #0284c7; }
+
+.input {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  padding: 0.62rem 0.8rem;
+}
+
+.card {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.toast {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  background: #0ea5e9;
+  color: white;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  z-index: 50;
+}
+
+.grid-week {
+  display: grid;
+  grid-template-columns: 70px repeat(7, 1fr);
+  gap: 1px;
+  background: #1e293b;
+  border: 1px solid #1e293b;
+}
+
+.grid-week > div {
+  background: #020617;
+  min-height: 44px;
+  padding: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.badge { border-radius: 9999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; }
+.badge-ok { background: #14532d; }
+.badge-warn { background: #713f12; }
+.badge-danger { background: #7f1d1d; }
