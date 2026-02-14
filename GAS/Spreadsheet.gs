@@ -71,6 +71,23 @@ function handleSetupInit(payload) {
     ensureSheetHeader(sheet, APP_CONFIG.SHEET_HEADERS[k]);
   });
 
+  var profissionais = listRows('PROFISSIONAIS');
+  var defaultProfId = '';
+  if (!profissionais.length) {
+    var prof = appendRow('PROFISSIONAIS', {
+      id: uid('pro'),
+      nome: payload.profissional_nome || 'Profissional Principal',
+      telefone: '',
+      email: '',
+      ativo: true,
+      created_at: toIsoUtc(new Date()),
+      updated_at: toIsoUtc(new Date())
+    });
+    defaultProfId = prof.id;
+  } else {
+    defaultProfId = profissionais[0].id;
+  }
+
   var users = listRows('USUARIOS');
   if (!users.length) {
     var adminName = payload.admin_nome || 'Administrador';
@@ -78,10 +95,10 @@ function handleSetupInit(payload) {
     var adminPass = String(payload.admin_senha || '123456');
     appendRow('USUARIOS', {
       id: uid('usr'), nome: adminName, email: adminEmail, telefone: '',
-      senha_hash: hashPassword(adminPass), role: APP_CONFIG.ROLES.ADMIN, profissional_id: '',
+      senha_hash: hashPassword(adminPass), role: APP_CONFIG.ROLES.ADMIN, profissional_id: defaultProfId,
       ativo: true, created_at: toIsoUtc(new Date()), updated_at: toIsoUtc(new Date())
     });
   }
 
-  return okResponse({ initialized: true, sheets: Object.keys(APP_CONFIG.SHEETS).length });
+  return okResponse({ initialized: true, sheets: Object.keys(APP_CONFIG.SHEETS).length, default_profissional_id: defaultProfId });
 }

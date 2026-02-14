@@ -38,8 +38,10 @@ Sistema completo de agenda com backend em Google Apps Script e frontend PWA est�
 - `users.list` (ADMIN)
 - `clients.list`, `clients.save`
 - `services.list`, `services.save` (ADMIN)
+- `professionals.list`, `professionals.save` (ADMIN)
 - `schedule.list`, `schedule.save`, `schedule.cancel`
 - `blocks.list`, `blocks.save`
+- `settings.get`, `settings.save` (ADMIN)
 - `reports.summary` (ADMIN)
 
 ## Observação

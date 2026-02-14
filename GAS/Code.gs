@@ -11,8 +11,7 @@ function doPost(e) {
     var action = req.action;
     var token = req.token || '';
     var payload = req.payload || {};
-    var res = routeAction(action, token, payload);
-    return jsonOutput(res);
+    return jsonOutput(routeAction(action, token, payload));
   } catch (err) {
     logEvent('ERROR', 'doPost', { message: String(err) }, null);
     return jsonOutput(failResponse('Erro na requisição: ' + err.message));
@@ -40,13 +39,23 @@ function routeAction(action, token, payload) {
     if (action === 'users.list') return adminOnly(session, function () { return usersList(); });
     if (action === 'clients.list') return clientsList(session, payload);
     if (action === 'clients.save') return clientsSave(session, payload);
+
     if (action === 'services.list') return servicesList();
     if (action === 'services.save') return adminOnly(session, function () { return servicesSave(payload); });
+
+    if (action === 'professionals.list') return professionalsList(session);
+    if (action === 'professionals.save') return adminOnly(session, function () { return professionalsSave(payload); });
+
     if (action === 'schedule.list') return scheduleList(session, payload);
     if (action === 'schedule.save') return scheduleSave(session, payload);
     if (action === 'schedule.cancel') return scheduleCancel(session, payload);
+
     if (action === 'blocks.list') return blocksList(session, payload);
     if (action === 'blocks.save') return blocksSave(session, payload);
+
+    if (action === 'settings.get') return settingsGet(session);
+    if (action === 'settings.save') return adminOnly(session, function () { return settingsSave(payload); });
+
     if (action === 'reports.summary') return adminOnly(session, function () { return reportsSummary(payload); });
 
     return failResponse('Ação inválida: ' + action);
