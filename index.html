@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="MinhaAgenda 2.0 - Sistema de Agendamento Profissional">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>MinhaAgenda 2.0</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="assets/icons/icon-192.svg">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
+
+  <!-- ─── APP SHELL ──────────────────────────────────────────────────── -->
+  <div id="app" class="flex min-h-screen">
+
+    <!-- ─── SIDEBAR (desktop) ───────────────────────────────────────── -->
+    <aside id="sidebar" class="hidden lg:flex flex-col w-64 bg-gray-800/50 border-r border-gray-700 fixed inset-y-0 left-0 z-30">
+      <!-- Logo -->
+      <div class="flex items-center gap-3 px-6 py-5 border-b border-gray-700">
+        <div class="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+          <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </div>
+        <div>
+          <h1 class="text-white font-bold text-sm">MinhaAgenda</h1>
+          <span class="text-gray-500 text-xs">v2.0</span>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <a href="#" data-sidebar="agenda" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-blue-400 bg-blue-600/20">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          Agenda
+        </a>
+        <a href="#" data-sidebar="clientes" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-gray-400 hover:bg-gray-800">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Clientes
+        </a>
+        <a href="#" data-sidebar="servicos" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-gray-400 hover:bg-gray-800">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          Serviços
+        </a>
+        <a href="#" data-sidebar="pacotes" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-gray-400 hover:bg-gray-800">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          Pacotes
+        </a>
+
+        <!-- Admin section -->
+        <div id="admin-nav-section" class="hidden">
+          <div class="px-3 pt-4 pb-2">
+            <span class="text-xs text-gray-600 font-semibold uppercase tracking-wider">Admin</span>
+          </div>
+          <a href="#" data-sidebar="profissionais" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-gray-400 hover:bg-gray-800">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+            Profissionais
+          </a>
+          <a href="#" data-sidebar="relatorios" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-gray-400 hover:bg-gray-800">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            Relatórios
+          </a>
+          <a href="#" data-sidebar="lembretes" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-gray-400 hover:bg-gray-800">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+            Lembretes
+          </a>
+        </div>
+      </nav>
+
+      <!-- User footer -->
+      <div class="px-4 py-3 border-t border-gray-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 min-w-0">
+            <div id="sidebar-user-avatar" class="w-8 h-8 rounded-full bg-blue-600/20 text-blue-400 flex items-center justify-center text-sm font-semibold flex-shrink-0">A</div>
+            <div class="min-w-0">
+              <div id="sidebar-user-name" class="text-sm text-white font-medium truncate">Admin</div>
+              <div id="sidebar-user-role" class="text-xs text-gray-500">ADMIN</div>
+            </div>
+          </div>
+          <button onclick="Auth.logout()" class="text-gray-500 hover:text-red-400 p-1 transition-colors" title="Sair">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─── MAIN CONTENT ────────────────────────────────────────────── -->
+    <main class="flex-1 lg:ml-64 pb-20 lg:pb-0">
+      <!-- Top bar (mobile) -->
+      <header class="sticky top-0 z-20 bg-gray-900/80 backdrop-blur-xl border-b border-gray-800 px-4 py-3 lg:px-8 lg:py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="lg:hidden w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+              <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <h2 id="page-title" class="text-white font-semibold">Agenda</h2>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="topbar-user-name" class="text-sm text-gray-400 hidden sm:inline"></span>
+            <button onclick="Auth.logout()" class="lg:hidden text-gray-500 hover:text-red-400 p-2" title="Sair">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Page content -->
+      <div id="page-content" class="px-4 py-4 lg:px-8 lg:py-6">
+        <!-- Content rendered by router -->
+      </div>
+    </main>
+
+    <!-- ─── BOTTOM NAV (mobile) ──────────────────────────────────────── -->
+    <nav id="bottom-nav" class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-gray-800/95 backdrop-blur-xl border-t border-gray-700 safe-bottom">
+      <div class="flex items-center justify-around py-2">
+        <button data-nav="agenda" class="flex flex-col items-center gap-0.5 py-1 px-3 text-blue-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          <span class="text-[10px] font-medium">Agenda</span>
+        </button>
+        <button data-nav="clientes" class="flex flex-col items-center gap-0.5 py-1 px-3 text-gray-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span class="text-[10px] font-medium">Clientes</span>
+        </button>
+        <button data-nav="servicos" class="flex flex-col items-center gap-0.5 py-1 px-3 text-gray-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          <span class="text-[10px] font-medium">Serviços</span>
+        </button>
+        <button data-nav="pacotes" class="flex flex-col items-center gap-0.5 py-1 px-3 text-gray-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          <span class="text-[10px] font-medium">Pacotes</span>
+        </button>
+        <button data-nav="profissionais" id="nav-admin-btn" class="hidden flex-col items-center gap-0.5 py-1 px-3 text-gray-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span class="text-[10px] font-medium">Admin</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2"></div>
+
+  <!-- ─── SCRIPTS ──────────────────────────────────────────────────── -->
+  <script src="js/config.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/agenda.js"></script>
+  <script src="js/clientes.js"></script>
+  <script src="js/servicos.js"></script>
+  <script src="js/pacotes.js"></script>
+  <script src="js/profissionais.js"></script>
+  <script src="js/relatorios.js"></script>
+  <script src="js/lembretes.js"></script>
+  <script src="js/pwa.js"></script>
+
+  <script>
+    // ─── BOOT ──────────────────────────────────────────────────────
+    (function() {
+      // Verificar autenticação
+      if (!Auth.requireAuth()) return;
+
+      const user = Auth.getUser();
+      Store.set('usuario', user);
+      Store.set('loggedIn', true);
+
+      // Atualizar UI com dados do usuário
+      const initial = (user.nome || 'U').charAt(0).toUpperCase();
+      const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+      if (sidebarAvatar) sidebarAvatar.textContent = initial;
+      const sidebarName = document.getElementById('sidebar-user-name');
+      if (sidebarName) sidebarName.textContent = user.nome || 'Usuário';
+      const sidebarRole = document.getElementById('sidebar-user-role');
+      if (sidebarRole) sidebarRole.textContent = user.role || '';
+      const topbarName = document.getElementById('topbar-user-name');
+      if (topbarName) topbarName.textContent = user.nome || '';
+
+      // Mostrar navegação admin se for admin
+      if (user.role === 'ADMIN') {
+        document.getElementById('admin-nav-section')?.classList.remove('hidden');
+        const adminBtn = document.getElementById('nav-admin-btn');
+        if (adminBtn) adminBtn.classList.remove('hidden');
+        if (adminBtn) adminBtn.classList.add('flex');
+      }
+
+      // Atualizar título da página com base na navegação
+      Store.on((key) => {
+        if (key === 'paginaAtual' || key === '*') {
+          const titles = {
+            agenda: 'Agenda',
+            clientes: 'Clientes',
+            servicos: 'Serviços',
+            pacotes: 'Pacotes',
+            profissionais: 'Profissionais',
+            relatorios: 'Relatórios',
+            lembretes: 'Lembretes'
+          };
+          const pagina = Store.get('paginaAtual');
+          const titleEl = document.getElementById('page-title');
+          if (titleEl) titleEl.textContent = titles[pagina] || 'MinhaAgenda';
+        }
+      });
+
+      // Inicializar roteador
+      Router.init();
+    })();
+  </script>
+</body>
+</html>
