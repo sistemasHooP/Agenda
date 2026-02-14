@@ -637,6 +637,35 @@ const AgendaPage = {
     return [...serverList, ...locais];
   },
 
+  _atualizarAgendamentoLocal(id, patch) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const anterior = { ...lista[idx] };
+    lista[idx] = { ...lista[idx], ...patch, _optimistic: true, _createdLocalTs: Date.now() };
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return anterior;
+  },
+
+  _inserirAgendamentoLocal(ag) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    lista.push(ag);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+  },
+
+  _removerAgendamentoLocal(id) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const removido = lista[idx];
+    lista.splice(idx, 1);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return removido;
+  },
+
   async _sincronizarAgendaSilenciosa() {
     try {
       const semanaKey = Store.get('semanaKey');
@@ -728,41 +757,34 @@ const AgendaPage = {
       obs: document.getElementById('ag-obs').value.trim()
     };
 
-    const btn = document.getElementById('ag-salvar');
-    btn.disabled = true;
-    btn.textContent = 'Salvando...';
+    const servSel = (Store.get('servicos') || []).find(s => s.id === dados.servico_id);
+    const duracao = parseInt(servSel?.duracao_min, 10) || APP_CONFIG.INTERVALO_MIN;
+    const inicio = new Date(dados.inicio_iso);
+    const fim = new Date(inicio.getTime() + duracao * 60000);
+    const cliente = (Store.get('clientes') || []).find(c => c.id === dados.cliente_id);
+    const tempId = 'tmp_' + Date.now();
+
+    this._inserirAgendamentoLocal({
+      id: tempId,
+      ...dados,
+      _clienteNome: cliente?.nome || '',
+      _optimistic: true,
+      _createdLocalTs: Date.now(),
+      fim_iso: this._formatLocalIso(fim),
+      status: APP_CONFIG.STATUS.MARCADO,
+      dia_key: dados.inicio_iso.substring(0, 10)
+    });
+
+    modal.close();
 
     const r = await Api.call('criarAgendamento', dados);
     if (r.ok) {
-      const ags = [...(Store.get('agendamentos') || [])];
-      const servSel = (Store.get('servicos') || []).find(s => s.id === dados.servico_id);
-      const duracao = parseInt(servSel?.duracao_min, 10) || APP_CONFIG.INTERVALO_MIN;
-      const inicio = new Date(dados.inicio_iso);
-      const fim = new Date(inicio.getTime() + duracao * 60000);
-      const cliente = (Store.get('clientes') || []).find(c => c.id === dados.cliente_id);
-
-      ags.push({
-        id: r.data.id,
-        ...dados,
-        _clienteNome: cliente?.nome || '',
-        _optimistic: true,
-        _createdLocalTs: Date.now(),
-        fim_iso: this._formatLocalIso(fim),
-        status: APP_CONFIG.STATUS.MARCADO,
-        dia_key: dados.inicio_iso.substring(0, 10)
-      });
-
-      Store.set('agendamentos', ags);
-      this._renderGrade();
+      this._atualizarAgendamentoLocal(tempId, { id: r.data.id });
       UI.success('Agendamento criado!');
-      modal.close();
-
-      // sincronização em background, sem bloquear UI
       this._sincronizarAgendaSilenciosa();
     } else {
-      UI.error(r.msg);
-      btn.disabled = false;
-      btn.textContent = 'Agendar';
+      this._removerAgendamentoLocal(tempId);
+      UI.error(r.msg || 'Erro ao criar agendamento.');
     }
   },
 
@@ -863,12 +885,15 @@ const AgendaPage = {
   },
 
   async mudarStatus(id, status) {
+    const anterior = this._atualizarAgendamentoLocal(id, { status });
+    UI.closeModal();
+
     const r = await Api.call('marcarStatus', { id, status });
     if (r.ok) {
       UI.success(r.msg);
-      UI.closeModal();
-      this.render(document.getElementById('page-content'));
+      this._sincronizarAgendaSilenciosa();
     } else {
+      if (anterior) this._atualizarAgendamentoLocal(id, { status: anterior.status });
       UI.error(r.msg);
     }
   },
@@ -877,12 +902,15 @@ const AgendaPage = {
     const ok = await UI.confirm('Cancelar agendamento', 'Tem certeza que deseja cancelar este agendamento?');
     if (!ok) return;
 
+    const anterior = this._atualizarAgendamentoLocal(id, { status: APP_CONFIG.STATUS.CANCELADO });
+    UI.closeModal();
+
     const r = await Api.call('cancelarAgendamento', { id });
     if (r.ok) {
       UI.success('Agendamento cancelado.');
-      UI.closeModal();
-      this.render(document.getElementById('page-content'));
+      this._sincronizarAgendaSilenciosa();
     } else {
+      if (anterior) this._atualizarAgendamentoLocal(id, { status: anterior.status });
       UI.error(r.msg);
     }
   },
@@ -977,18 +1005,39 @@ const AgendaPage = {
       const fim = document.getElementById('bq-fim').value;
       if (!inicio || !fim) { UI.warning('Horários são obrigatórios.'); return; }
 
-      const r = await Api.call('criarBloqueio', {
+      const payload = {
         profissional_id: document.getElementById('bq-profissional').value,
         inicio_iso: inicio + ':00',
         fim_iso: fim + ':00',
         motivo: document.getElementById('bq-motivo').value.trim()
-      });
+      };
+
+      const tempBloq = {
+        id: 'tmp_bq_' + Date.now(),
+        semana_key: Store.get('semanaKey'),
+        ...payload,
+        _optimistic: true,
+        _createdLocalTs: Date.now()
+      };
+
+      const bloqs = [...(Store.get('bloqueios') || []), tempBloq];
+      Store.set('bloqueios', bloqs);
+      this._renderGrade();
+      modal.close();
+
+      const r = await Api.call('criarBloqueio', payload);
 
       if (r.ok) {
+        const atual = [...(Store.get('bloqueios') || [])];
+        const idx = atual.findIndex(b => b.id === tempBloq.id);
+        if (idx >= 0) atual[idx].id = r.data.id;
+        Store.set('bloqueios', atual);
+        this._renderGrade();
         UI.success('Horário bloqueado!');
-        modal.close();
-        this.render(document.getElementById('page-content'));
+        this._sincronizarAgendaSilenciosa();
       } else {
+        Store.set('bloqueios', (Store.get('bloqueios') || []).filter(b => b.id !== tempBloq.id));
+        this._renderGrade();
         UI.error(r.msg);
       }
     });
