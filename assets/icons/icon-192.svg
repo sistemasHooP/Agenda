@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="MinhaAgenda 2.0 icon">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="36" fill="#020617"/>
+  <rect x="24" y="30" width="144" height="138" rx="18" fill="url(#g)"/>
+  <rect x="40" y="54" width="112" height="16" rx="8" fill="#e2e8f0" opacity="0.95"/>
+  <rect x="40" y="84" width="72" height="12" rx="6" fill="#e2e8f0" opacity="0.9"/>
+  <rect x="40" y="106" width="56" height="12" rx="6" fill="#e2e8f0" opacity="0.9"/>
+  <circle cx="128" cy="116" r="20" fill="#10b981"/>
+  <path d="M118 116l8 8 14-16" fill="none" stroke="#ecfeff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
