@@ -344,8 +344,12 @@ const AgendaPage = {
   },
 
   _agendamentosIniciandoNoSlot(agendamentos, dateStr, timeSlot) {
-    const prefix = dateStr + 'T' + timeSlot;
-    return agendamentos.filter(a => String(a.status) !== 'cancelado' && String(a.inicio_iso || '').startsWith(prefix));
+    const slotTime = new Date(dateStr + 'T' + timeSlot + ':00').getTime();
+    return agendamentos.filter((a) => {
+      if (String(a.status) === 'cancelado') return false;
+      const inicio = new Date(a.inicio_iso).getTime();
+      return inicio === slotTime;
+    });
   },
 
   _findAgendamento(agendamentos, dateStr, timeSlot) {
@@ -601,6 +605,38 @@ const AgendaPage = {
     document.getElementById('ag-cliente-results').classList.add('hidden');
   },
 
+
+  _formatLocalIso(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    const hh = String(dateObj.getHours()).padStart(2, '0');
+    const mm = String(dateObj.getMinutes()).padStart(2, '0');
+    const ss = String(dateObj.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+  },
+
+  async _sincronizarAgendaSilenciosa() {
+    try {
+      const semanaKey = Store.get('semanaKey');
+      const profFiltro = Store.get('profissionalFiltro');
+      const dados = { semana_key: semanaKey };
+      if (profFiltro && profFiltro !== 'all') dados.profissional_id = profFiltro;
+
+      const r = await Api.call('listarAgendaSemana', dados, { retries: 1, timeout: 15000 });
+      if (r.ok && r.data) {
+        Store.setMultiple({
+          datas: r.data.datas,
+          agendamentos: r.data.agendamentos,
+          bloqueios: r.data.bloqueios
+        });
+        this._renderGrade();
+      }
+    } catch (_) {
+      // sincronização silenciosa (sem toast)
+    }
+  },
+
   async novoClienteRapido() {
     const content = `
       <form id="form-cliente-rapido" class="space-y-3">
@@ -676,22 +712,29 @@ const AgendaPage = {
 
     const r = await Api.call('criarAgendamento', dados);
     if (r.ok) {
-      const ags = Store.get('agendamentos') || [];
+      const ags = [...(Store.get('agendamentos') || [])];
       const servSel = (Store.get('servicos') || []).find(s => s.id === dados.servico_id);
       const duracao = parseInt(servSel?.duracao_min, 10) || APP_CONFIG.INTERVALO_MIN;
       const inicio = new Date(dados.inicio_iso);
       const fim = new Date(inicio.getTime() + duracao * 60000);
+      const cliente = (Store.get('clientes') || []).find(c => c.id === dados.cliente_id);
+
       ags.push({
         id: r.data.id,
         ...dados,
-        fim_iso: fim.toISOString().slice(0, 19),
+        _clienteNome: cliente?.nome || '',
+        fim_iso: this._formatLocalIso(fim),
         status: APP_CONFIG.STATUS.MARCADO,
         dia_key: dados.inicio_iso.substring(0, 10)
       });
+
       Store.set('agendamentos', ags);
+      this._renderGrade();
       UI.success('Agendamento criado!');
       modal.close();
-      this.render(document.getElementById('page-content'));
+
+      // sincronização em background, sem bloquear UI
+      this._sincronizarAgendaSilenciosa();
     } else {
       UI.error(r.msg);
       btn.disabled = false;
