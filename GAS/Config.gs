@@ -77,7 +77,7 @@ var HEADERS = {
     'motivo', 'criado_por', 'criado_em'],
   PACOTES_MODELO: ['id', 'nome', 'descricao', 'ativo'],
   PACOTES_MODELO_ITENS: ['id', 'pacote_modelo_id', 'servico_id', 'quantidade'],
-  PACOTES_VENDIDOS: ['id', 'cliente_id', 'pacote_modelo_id', 'data_venda', 'valor_total', 'obs'],
+  PACOTES_VENDIDOS: ['id', 'cliente_id', 'pacote_modelo_id', 'data_venda', 'valor_bruto', 'desconto_tipo', 'desconto_valor', 'desconto_percent', 'valor_total', 'obs'],
   PACOTES_SALDOS: ['id', 'pacote_vendido_id', 'servico_id', 'qtd_total', 'qtd_usada'],
   PACOTES_USOS: ['id', 'pacote_vendido_id', 'agendamento_id', 'servico_id', 'qtd', 'data_uso_iso'],
   LEMBRETES_LOG: ['id', 'agendamento_id', 'enviado_por', 'canal', 'mensagem', 'criado_em'],
