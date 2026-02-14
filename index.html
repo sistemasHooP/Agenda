@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#7c3aed" />
+    <title>MinhaAgenda 2.0</title>
+    <link rel="manifest" href="./manifest.json" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body class="h-full app-bg">
+    <div id="app" class="h-full flex flex-col md:flex-row">
+      <aside class="hidden md:flex w-72 sidebar p-4 flex-col gap-2">
+        <div class="brand-block mb-2">
+          <div class="brand-logo">✦</div>
+          <div>
+            <p class="brand-sub">Clínica</p>
+            <h1 id="brandName" class="brand-title">MinhaAgenda 2.0</h1>
+          </div>
+        </div>
+
+        <button data-route="agendamentos" class="nav-btn">Agenda</button>
+        <button data-route="clientes" class="nav-btn">Clientes</button>
+        <button data-route="servicos" class="nav-btn">Serviços</button>
+        <button data-route="admin" class="nav-btn">Relatórios</button>
+        <button data-route="configuracoes" class="nav-btn">Configurações</button>
+      </aside>
+
+      <main class="flex-1 overflow-auto pb-20 md:pb-0">
+        <header class="topbar px-4 py-3 flex gap-2 items-center">
+          <input id="searchInput" class="input-clean flex-1" placeholder="Buscar cliente ou serviço..." />
+          <button id="btnRefresh" class="btn-primary">Atualizar</button>
+        </header>
+        <section id="view" class="p-4"></section>
+      </main>
+
+      <nav class="md:hidden fixed bottom-0 inset-x-0 mobile-nav grid grid-cols-5">
+        <button data-route="agendamentos" class="bottom-btn">Agenda</button>
+        <button data-route="clientes" class="bottom-btn">Clientes</button>
+        <button data-route="servicos" class="bottom-btn">Serviços</button>
+        <button data-route="admin" class="bottom-btn">Relatórios</button>
+        <button data-route="configuracoes" class="bottom-btn">Config</button>
+      </nav>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="modalContainer" class="hidden"></div>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>
