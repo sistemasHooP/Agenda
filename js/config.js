@@ -5,7 +5,7 @@
 
 const APP_CONFIG = {
   // URL da API GAS — TROCAR após deploy do Web App
-  API_URL: 'https://script.google.com/macros/s/SEU_DEPLOY_ID_AQUI/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbxmu37XOcW73-wl30SN3ixKm4TOvr8WIOWHP51s30bihCTR3By1D_dIGFfAKuh8FPHp/exec',
 
   // Timezone
   TIMEZONE: 'America/Recife',
