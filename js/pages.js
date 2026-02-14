@@ -4,8 +4,7 @@ import { fmtMoney, statusBadge } from './ui.js';
 function getWeekStart(date = new Date()) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  d.setDate(d.getDate() - day);
+  d.setDate(d.getDate() - d.getDay());
   return d;
 }
 
@@ -13,49 +12,79 @@ function dayLabel(dt) {
   return dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
 }
 
-export function renderAgendamentos() {
-  const weekStart = getWeekStart();
-  const hours = [];
-  for (let h = 8; h <= 19; h++) hours.push(h);
+function eventColor(service) {
+  return service?.cor || '#f59e0b';
+}
 
-  let grid = '<div class="agenda-grid">';
-  grid += '<div class="agenda-cell agenda-head">Hora</div>';
-  for (let d = 0; d < 7; d++) {
-    const date = new Date(weekStart);
-    date.setDate(weekStart.getDate() + d);
-    grid += `<div class="agenda-cell agenda-head">${dayLabel(date)}</div>`;
-  }
+function toSlotY(date) {
+  const h = date.getHours();
+  const m = date.getMinutes();
+  return ((h - 7) * 60 + m) * (42 / 30);
+}
 
-  for (const h of hours) {
-    grid += `<div class="agenda-cell agenda-hour">${String(h).padStart(2, '0')}:00</div>`;
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(weekStart);
-      date.setDate(weekStart.getDate() + d);
-      const startIso = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), h, 0, 0)).toISOString();
-      grid += `<button class="agenda-cell agenda-slot" data-slot-start="${startIso}">+</button>`;
-    }
-  }
-  grid += '</div>';
+function renderAgendaEvents(weekStart) {
+  const cliMap = Object.fromEntries(state.clientes.map(c => [String(c.id), c]));
+  const srvMap = Object.fromEntries(state.servicos.map(s => [String(s.id), s]));
 
-  const profActive = state.profissionais.find(p => String(p.id) === String(state.agenda_profissional_id));
+  const cols = Array.from({ length: 7 }, (_, i) => {
+    const left = 74 + (i * (100 / 7));
+    return `<div class="day-col" style="left: calc(${left}% - ${(74 / 7).toFixed(4)}px)"></div>`;
+  }).join('');
 
-  const list = state.agendamentos.map(a => {
-    const cli = state.clientes.find(c => String(c.id) === String(a.cliente_id));
-    const srv = state.servicos.find(s => String(s.id) === String(a.servico_id));
-    const date = new Date(a.inicio_iso).toLocaleString('pt-BR');
+  const events = state.agendamentos.map((a) => {
+    const start = new Date(a.inicio_iso);
+    const end = new Date(a.fim_iso);
+    const day = start.getDay();
+
+    const baseDay = new Date(weekStart);
+    baseDay.setDate(baseDay.getDate() + day);
+    if (start.toDateString() !== baseDay.toDateString()) return '';
+
+    const top = Math.max(0, toSlotY(start));
+    const height = Math.max(28, toSlotY(end) - toSlotY(start));
+    const left = `calc(74px + (${day} * (100% - 74px) / 7))`;
+    const width = `calc((100% - 74px) / 7)`;
+
+    const cli = cliMap[String(a.cliente_id)];
+    const srv = srvMap[String(a.servico_id)];
+    const label = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')} - ${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+
     return `
-      <div class="clean-card item-row">
-        <div>
-          <p class="font-semibold">${cli ? cli.nome : a.cliente_id} • ${srv ? srv.nome : a.servico_id}</p>
-          <p class="muted">${date}</p>
-        </div>
-        <div class="text-right">
-          ${statusBadge(a.status)}
-          <p class="font-semibold mt-1">${fmtMoney(a.valor)}</p>
-        </div>
+      <div class="event-card" style="top:${top}px;height:${height}px;left:${left};width:${width};background:${eventColor(srv)}">
+        <div><strong>${label}</strong></div>
+        <div>${cli ? cli.nome : a.cliente_id}</div>
+        <div>${srv ? srv.nome : a.servico_id}</div>
       </div>
     `;
   }).join('');
+
+  return `<div class="agenda-events-layer">${cols}${events}</div>`;
+}
+
+export function renderAgendamentos() {
+  const weekStart = getWeekStart();
+  const hours = [];
+  for (let h = 7; h <= 18; h++) {
+    hours.push({ h, m: 0 });
+    hours.push({ h, m: 30 });
+  }
+
+  let rows = '';
+  for (const t of hours) {
+    const label = `${String(t.h).padStart(2, '0')}:${String(t.m).padStart(2, '0')}`;
+    rows += `<div class="agenda-row"><div class="agenda-time">${label}</div>`;
+
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(weekStart);
+      dt.setDate(weekStart.getDate() + d);
+      dt.setHours(t.h, t.m, 0, 0);
+      rows += `<button class="agenda-slot" data-slot-start="${dt.toISOString()}" aria-label="Agendar ${label}"></button>`;
+    }
+
+    rows += '</div>';
+  }
+
+  const profActive = state.profissionais.find(p => String(p.id) === String(state.agenda_profissional_id));
 
   return `
     <section class="space-y-4">
@@ -65,19 +94,25 @@ export function renderAgendamentos() {
           <select id="agendaProfissional" class="input-clean">
             ${state.profissionais.map(p => `<option value="${p.id}" ${String(p.id) === String(state.agenda_profissional_id) ? 'selected' : ''}>${p.nome}</option>`).join('')}
           </select>
-          <p class="muted mt-1">${profActive ? 'Novos agendamentos serão criados para ' + profActive.nome : ''}</p>
+          <p class="muted mt-1">${profActive ? `Novos agendamentos para ${profActive.nome}` : ''}</p>
         </div>
         <button id="btnNovoAgendamento" class="btn-primary">Novo agendamento</button>
       </div>
 
       <div class="clean-card">
-        <h2 class="section-title">Calendário semanal</h2>
-        ${grid}
-      </div>
-
-      <div>
-        <h3 class="section-title">Agendamentos da semana</h3>
-        ${list || '<div class="clean-card muted">Sem agendamentos ainda.</div>'}
+        <h2 class="section-title">Agenda semanal</h2>
+        <div class="agenda-board">
+          <div class="agenda-header">
+            <div class="agenda-head-cell">Hora</div>
+            ${Array.from({ length: 7 }, (_, d) => {
+              const date = new Date(weekStart);
+              date.setDate(weekStart.getDate() + d);
+              return `<div class="agenda-head-cell">${dayLabel(date)}</div>`;
+            }).join('')}
+          </div>
+          ${rows}
+          ${renderAgendaEvents(weekStart)}
+        </div>
       </div>
     </section>
   `;
