@@ -173,6 +173,7 @@ const PacotesPage = {
           </div>
           <div class="text-right">
             <div class="text-white font-semibold">${UI.formatarMoeda(v.valor_total)}</div>
+            ${(parseFloat(v.desconto_valor) || 0) > 0 ? `<div class="text-xs text-amber-400">Desconto: -${UI.formatarMoeda(v.desconto_valor)}</div>` : ''}
           </div>
         </div>
         <div class="space-y-2">
@@ -331,10 +332,10 @@ const PacotesPage = {
             ${modelos.map(m => `<option value="${m.id}">${UI.escapeHtml(m.nome)}</option>`).join('')}
           </select>
         </div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Valor Total (R$) *</label>
-            <input type="number" id="vp-valor" min="0" step="0.01" required
+            <label class="block text-sm text-gray-400 mb-1">Valor bruto (R$)</label>
+            <input type="number" id="vp-valor-bruto" min="0" step="0.01"
               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm focus:border-blue-500 focus:outline-none">
           </div>
           <div>
@@ -342,6 +343,21 @@ const PacotesPage = {
             <input type="date" id="vp-data" value="${UI.getHoje()}"
               class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm focus:border-blue-500 focus:outline-none">
           </div>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Desconto (%)</label>
+            <input type="number" id="vp-desc-percent" min="0" max="100" step="0.01" value="0"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm focus:border-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Desconto (R$)</label>
+            <input type="number" id="vp-desc-valor" min="0" step="0.01" value="0"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm focus:border-blue-500 focus:outline-none">
+          </div>
+        </div>
+        <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3 text-sm">
+          <div class="flex justify-between"><span class="text-gray-400">Total final</span><span id="vp-total-preview" class="text-emerald-400 font-semibold">R$ 0,00</span></div>
         </div>
         <div>
           <label class="block text-sm text-gray-400 mb-1">Observação</label>
@@ -362,16 +378,28 @@ const PacotesPage = {
 
     // Busca de clientes
     this._setupBuscaClienteVenda();
+    this._bindCalculoVenda();
+
+    document.getElementById('vp-modelo')?.addEventListener('change', () => this._calcularValorPacoteSelecionado());
 
     document.getElementById('vp-cancelar')?.addEventListener('click', modal.close);
     document.getElementById('vp-salvar')?.addEventListener('click', async () => {
       const clienteId = document.getElementById('vp-cliente-id').value;
       if (!clienteId) { UI.warning('Selecione um cliente.'); return; }
 
+      const valorBruto = parseFloat(document.getElementById('vp-valor-bruto').value) || 0;
+      const descPercent = parseFloat(document.getElementById('vp-desc-percent').value) || 0;
+      const descValor = parseFloat(document.getElementById('vp-desc-valor').value) || 0;
+      const total = Math.max(0, valorBruto - Math.max(descValor, valorBruto * (descPercent / 100)));
+
       const r = await Api.call('venderPacote', {
         cliente_id: clienteId,
         pacote_modelo_id: document.getElementById('vp-modelo').value,
-        valor_total: document.getElementById('vp-valor').value,
+        valor_bruto: valorBruto,
+        desconto_tipo: descValor > 0 ? 'value' : (descPercent > 0 ? 'percent' : 'none'),
+        desconto_valor: descValor,
+        desconto_percent: descPercent,
+        valor_total: total,
         data_venda: document.getElementById('vp-data').value,
         obs: document.getElementById('vp-obs').value.trim()
       });
@@ -383,6 +411,36 @@ const PacotesPage = {
         UI.error(r.msg);
       }
     });
+  },
+
+  _bindCalculoVenda() {
+    ['vp-valor-bruto', 'vp-desc-percent', 'vp-desc-valor'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('input', () => this._atualizarPreviewTotalVenda());
+    });
+    this._atualizarPreviewTotalVenda();
+  },
+
+  _calcularValorPacoteSelecionado() {
+    const modeloId = document.getElementById('vp-modelo')?.value;
+    if (!modeloId) return;
+    const modelos = Store.get('pacotesModelos') || [];
+    const modelo = modelos.find(m => m.id === modeloId);
+    const bruto = (modelo?.itens || []).reduce((sum, it) => {
+      const serv = (Store.get('servicos') || []).find(s => s.id === it.servico_id);
+      return sum + ((parseFloat(serv?.preco) || 0) * (parseInt(it.quantidade, 10) || 1));
+    }, 0);
+    document.getElementById('vp-valor-bruto').value = bruto.toFixed(2);
+    this._atualizarPreviewTotalVenda();
+  },
+
+  _atualizarPreviewTotalVenda() {
+    const bruto = parseFloat(document.getElementById('vp-valor-bruto')?.value) || 0;
+    const pct = parseFloat(document.getElementById('vp-desc-percent')?.value) || 0;
+    const val = parseFloat(document.getElementById('vp-desc-valor')?.value) || 0;
+    const desconto = Math.max(val, bruto * (pct / 100));
+    const total = Math.max(0, bruto - desconto);
+    const el = document.getElementById('vp-total-preview');
+    if (el) el.textContent = UI.formatarMoeda(total);
   },
 
   _setupBuscaClienteVenda() {

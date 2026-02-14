@@ -184,6 +184,12 @@ function rotear(action, tokenPayload, dados) {
     case 'resumoPacotes':
       return resumoPacotes(tokenPayload, dados);
 
+    // ── Configurações ──
+    case 'listarConfiguracoes':
+      return listarConfiguracoes(tokenPayload);
+    case 'salvarConfiguracoes':
+      return salvarConfiguracoes(tokenPayload, dados);
+
     // ── Ação desconhecida ──
     default:
       return { ok: false, msg: 'Ação desconhecida: ' + action, code: 404 };

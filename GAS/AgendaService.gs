@@ -83,6 +83,11 @@ function checarConflito(profissionalId, inicioIso, fimIso, excluirAgendamentoId)
   var agendamentos = buscarAgendaSemana(semanaKey, profissionalId);
   var bloqueios = buscarBloqueiosSemana(semanaKey, profissionalId);
 
+  var cfg = getConfiguracoesSistema();
+  if (String(cfg.permitir_multiplos) === 'true') {
+    return { conflito: false };
+  }
+
   // Verificar conflito com agendamentos existentes
   for (var i = 0; i < agendamentos.length; i++) {
     var a = agendamentos[i];
