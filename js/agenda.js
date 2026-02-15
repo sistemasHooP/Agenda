@@ -162,6 +162,7 @@ const AgendaPage = {
           if (r.ok) {
             const datas = Array.isArray(r.data?.datas) ? r.data.datas : (Store.get('datas') || []);
             const agsServidor = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
+            this._ultimaCargaServidor = { semana_key: String(dados.semana_key || ''), quantidade: agsServidor.length };
             const bloqsServidor = Array.isArray(r.data?.bloqueios) ? r.data.bloqueios : [];
             const agsAtuais = Store.get('agendamentos') || [];
 
@@ -184,7 +185,8 @@ const AgendaPage = {
 
       await Promise.all(promises);
 
-      if ((Store.get('agendamentos') || []).length === 0) {
+      const semDadosNoServidor = (this._ultimaCargaServidor && this._ultimaCargaServidor.quantidade === 0);
+      if (semDadosNoServidor || (Store.get('agendamentos') || []).length === 0) {
         await this._tentarCarregarSemanaComDados();
       }
 
@@ -349,8 +351,8 @@ const AgendaPage = {
           const serv = servicosMap[agend.servico_id] || {};
           const cor = serv.cor || '#3B82F6';
           const isCancelado = agend.status === APP_CONFIG.STATUS.CANCELADO;
-          cellClass = `p-0 border-l border-gray-700/50 ${isCancelado ? 'opacity-70' : ''}`;
-          cellContent = `<div class="agenda-fill h-full min-h-[44px] ${isHourStart ? 'agenda-fill-merge-top' : ''}" style="--agenda-fill:${cor}; background:${cor}22;"></div>`;
+          cellClass = `p-0 border-l border-gray-700/50 relative overflow-visible ${isCancelado ? 'opacity-70' : ''}`;
+          cellContent = `<div class="agenda-fill absolute inset-0 min-h-[44px] ${isHourStart ? 'agenda-fill-merge-top' : ''}" style="--agenda-fill:${cor}; background:${cor}22;"></div>`;
         }
 
         html += `<td class="${cellClass}" data-date="${cellDate}" data-time="${slot}" onclick="AgendaPage.clickSlot('${cellDate}','${slot}')">

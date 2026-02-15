@@ -63,8 +63,8 @@ function obterSemanaAgendaRecente(tokenPayload, dados) {
   return {
     ok: true,
     data: {
-      semana_key: filtrados[0].semana_key,
-      dia_key: filtrados[0].dia_key,
+      semana_key: calcSemanaKey(filtrados[0].inicio_iso),
+      dia_key: getDiaKey(filtrados[0].inicio_iso),
       inicio_iso: filtrados[0].inicio_iso
     }
   };

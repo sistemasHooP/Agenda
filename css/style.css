@@ -64,13 +64,12 @@ body {
 
 .agenda-fill {
   border-left: 3px solid var(--agenda-fill);
+  z-index: 3;
 }
 
 .agenda-fill-merge-top {
-  margin-top: -1px;
+  top: -1px;
   height: calc(100% + 1px);
-  position: relative;
-  z-index: 2;
 }
 
 
