@@ -139,6 +139,8 @@ function rotear(action, tokenPayload, dados) {
       return atualizarAgendamento(tokenPayload, dados);
     case 'cancelarAgendamento':
       return cancelarAgendamento(tokenPayload, dados);
+    case 'excluirAgendamento':
+      return excluirAgendamento(tokenPayload, dados);
     case 'marcarStatus':
       return marcarStatus(tokenPayload, dados);
     case 'checarConflito':
@@ -183,6 +185,12 @@ function rotear(action, tokenPayload, dados) {
       return resumoAgenda(tokenPayload, dados);
     case 'resumoPacotes':
       return resumoPacotes(tokenPayload, dados);
+
+    // ── Configurações ──
+    case 'listarConfiguracoes':
+      return listarConfiguracoes(tokenPayload);
+    case 'salvarConfiguracoes':
+      return salvarConfiguracoes(tokenPayload, dados);
 
     // ── Ação desconhecida ──
     default:
