@@ -159,7 +159,6 @@ function buscarAgendaSemana(semanaKey, profissionalId) {
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][colSemana]) !== String(semanaKey)) continue;
     if (profissionalId && String(data[i][colProf]) !== String(profissionalId)) continue;
-    if (String(data[i][colStatus]) === STATUS_AGENDAMENTO.CANCELADO) continue;
 
     var obj = {};
     for (var j = 0; j < headers.length; j++) {

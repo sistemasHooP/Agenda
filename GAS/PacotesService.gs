@@ -118,7 +118,7 @@ function atualizarModeloPacote(tokenPayload, dados) {
 function venderPacote(tokenPayload, dados) {
   exigirAdmin(tokenPayload);
 
-  var faltando = validarCamposObrigatorios(dados, ['cliente_id', 'pacote_modelo_id', 'valor_total']);
+  var faltando = validarCamposObrigatorios(dados, ['cliente_id', 'pacote_modelo_id']);
   if (faltando.length > 0) {
     return { ok: false, msg: 'Campos obrigatórios: ' + faltando.join(', ') };
   }
@@ -127,13 +127,47 @@ function venderPacote(tokenPayload, dados) {
   var modelo = buscarPorId(SHEETS.PACOTES_MODELO, dados.pacote_modelo_id);
   if (!modelo) return { ok: false, msg: 'Modelo de pacote não encontrado.' };
 
+  var valorBruto = parseFloat(dados.valor_bruto);
+  if (isNaN(valorBruto) || valorBruto < 0) {
+    valorBruto = parseFloat(dados.valor_total) || 0;
+  }
+
+  var descontoPercent = parseFloat(dados.desconto_percent) || 0;
+  var descontoValor = parseFloat(dados.desconto_valor) || 0;
+  var descontoTipo = String(dados.desconto_tipo || 'none');
+
+  if (descontoTipo === 'percent') {
+    if (descontoPercent < 0 || descontoPercent > 100) {
+      return { ok: false, msg: 'Desconto percentual inválido.' };
+    }
+    descontoValor = (valorBruto * descontoPercent) / 100;
+  } else if (descontoTipo === 'value') {
+    if (descontoValor < 0 || descontoValor > valorBruto) {
+      return { ok: false, msg: 'Desconto em valor inválido.' };
+    }
+    descontoPercent = valorBruto > 0 ? (descontoValor / valorBruto) * 100 : 0;
+  } else {
+    descontoTipo = 'none';
+    descontoValor = 0;
+    descontoPercent = 0;
+  }
+
+  var valorTotal = parseFloat(dados.valor_total);
+  if (isNaN(valorTotal) || valorTotal < 0) {
+    valorTotal = Math.max(0, valorBruto - descontoValor);
+  }
+
   var vendaId = gerarId();
   var venda = {
     id: vendaId,
     cliente_id: dados.cliente_id,
     pacote_modelo_id: dados.pacote_modelo_id,
     data_venda: dados.data_venda || agora(),
-    valor_total: parseFloat(dados.valor_total) || 0,
+    valor_bruto: valorBruto,
+    desconto_tipo: descontoTipo,
+    desconto_valor: descontoValor,
+    desconto_percent: descontoPercent,
+    valor_total: valorTotal,
     obs: dados.obs ? sanitizar(String(dados.obs).substring(0, 300)) : ''
   };
 
@@ -153,7 +187,7 @@ function venderPacote(tokenPayload, dados) {
   }
 
   registrarLog('vender_pacote', tokenPayload.uid, 'Venda: ' + vendaId + ' cliente: ' + dados.cliente_id);
-  return { ok: true, data: { id: vendaId }, msg: 'Pacote vendido com sucesso.' };
+  return { ok: true, data: { id: vendaId, valor_total: valorTotal }, msg: 'Pacote vendido com sucesso.' };
 }
 
 // ─── LISTAR PACOTES DO CLIENTE ────────────────────────────────────────────────
