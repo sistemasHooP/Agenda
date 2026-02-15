@@ -24,7 +24,7 @@ const Router = {
     }
 
     // Verificar permissão (páginas admin)
-    const adminPages = ['profissionais', 'relatorios', 'admin'];
+    const adminPages = ['profissionais', 'relatorios', 'lembretes', 'configuracoes', 'admin'];
     if (adminPages.includes(page) && !Auth.isAdmin()) {
       UI.warning('Acesso restrito a administradores.');
       page = 'agenda';
@@ -43,12 +43,12 @@ const Router = {
     const container = document.getElementById('page-content');
     if (container) {
       container.innerHTML = UI.loader();
-      try {
-        this._routes[page](container);
-      } catch (e) {
-        console.error('Erro ao renderizar página:', e);
-        container.innerHTML = `<div class="p-8 text-center text-red-400">Erro ao carregar página: ${UI.escapeHtml(e.message)}</div>`;
-      }
+      Promise.resolve()
+        .then(() => this._routes[page](container))
+        .catch((e) => {
+          console.error('Erro ao renderizar página:', e);
+          container.innerHTML = `<div class="p-8 text-center text-red-400">Erro ao carregar página: ${UI.escapeHtml(e.message)}</div>`;
+        });
     }
   },
 
@@ -85,6 +85,7 @@ const Router = {
     this.register('profissionais', (c) => ProfissionaisPage.render(c));
     this.register('relatorios', (c) => RelatoriosPage.render(c));
     this.register('lembretes', (c) => LembretesPage.render(c));
+    this.register('configuracoes', (c) => ConfiguracoesPage.render(c));
 
     // Listeners de navegação
     document.querySelectorAll('[data-nav], [data-sidebar]').forEach(el => {
