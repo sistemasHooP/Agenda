@@ -10,6 +10,7 @@ const AgendaPage = {
     Store.set('semanaKey', semanaKey);
 
     container.innerHTML = this._layoutHTML();
+    this._fallbackSemanaTentado = false;
     await this._processarPendenciasSilencioso();
     await this._carregarDados();
     this._renderGrade();
@@ -183,6 +184,10 @@ const AgendaPage = {
 
       await Promise.all(promises);
 
+      if ((Store.get('agendamentos') || []).length === 0) {
+        await this._tentarCarregarSemanaComDados();
+      }
+
       // Popular filtro de profissionais
       this._popularFiltroProfissionais();
 
@@ -190,6 +195,30 @@ const AgendaPage = {
       UI.error('Erro ao carregar agenda.');
     } finally {
       Store.setLoading('agenda', false);
+    }
+  },
+
+  async _tentarCarregarSemanaComDados() {
+    if (this._fallbackSemanaTentado) return;
+    this._fallbackSemanaTentado = true;
+
+    const profFiltro = Store.get('profissionalFiltro');
+    const payload = {};
+    if (profFiltro && profFiltro !== 'all') payload.profissional_id = profFiltro;
+
+    try {
+      const r = await Api.call('obterSemanaAgendaRecente', payload, { retries: 1, timeout: 15000 });
+      if (!r.ok || !r.data || !r.data.semana_key) return;
+
+      const atual = String(Store.get('semanaKey') || '');
+      const destino = String(r.data.semana_key || '');
+      if (!destino || destino === atual) return;
+
+      Store.set('semanaKey', destino);
+      if (r.data.dia_key) Store.set('diaAtual', r.data.dia_key);
+      await this._carregarDados();
+    } catch (_) {
+      // fallback silencioso
     }
   },
 
@@ -321,7 +350,7 @@ const AgendaPage = {
           const cor = serv.cor || '#3B82F6';
           const isCancelado = agend.status === APP_CONFIG.STATUS.CANCELADO;
           cellClass = `p-0 border-l border-gray-700/50 ${isCancelado ? 'opacity-70' : ''}`;
-          cellContent = `<div class="agenda-fill h-full min-h-[44px]" style="--agenda-fill:${cor}; background:${cor}22;"></div>`;
+          cellContent = `<div class="agenda-fill h-full min-h-[44px] ${isHourStart ? 'agenda-fill-merge-top' : ''}" style="--agenda-fill:${cor}; background:${cor}22;"></div>`;
         }
 
         html += `<td class="${cellClass}" data-date="${cellDate}" data-time="${slot}" onclick="AgendaPage.clickSlot('${cellDate}','${slot}')">

@@ -131,6 +131,8 @@ function rotear(action, tokenPayload, dados) {
     // ── Agenda ──
     case 'listarAgendaSemana':
       return listarAgendaSemana(tokenPayload, dados);
+    case 'obterSemanaAgendaRecente':
+      return obterSemanaAgendaRecente(tokenPayload, dados);
     case 'listarAgendaDia':
       return listarAgendaDia(tokenPayload, dados);
     case 'criarAgendamento':

@@ -66,6 +66,14 @@ body {
   border-left: 3px solid var(--agenda-fill);
 }
 
+.agenda-fill-merge-top {
+  margin-top: -1px;
+  height: calc(100% + 1px);
+  position: relative;
+  z-index: 2;
+}
+
+
 /* ─── MODAL ANIMATIONS ────────────────────────────────────────────── */
 .modal-content {
   animation: modalIn 0.2s ease-out forwards;

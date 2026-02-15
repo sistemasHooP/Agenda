@@ -35,6 +35,41 @@ function listarAgendaSemana(tokenPayload, dados) {
   };
 }
 
+
+function obterSemanaAgendaRecente(tokenPayload, dados) {
+  exigirAutenticado(tokenPayload);
+
+  var profId = null;
+  if (tokenPayload.role === CONFIG.ROLES.PROFISSIONAL) {
+    profId = tokenPayload.pid;
+  } else if (dados && dados.profissional_id && String(dados.profissional_id) !== 'all') {
+    profId = dados.profissional_id;
+  }
+
+  var agendamentos = listarTodos(SHEETS.AGENDAMENTOS, false);
+  var filtrados = agendamentos.filter(function(a) {
+    if (profId && String(a.profissional_id) !== String(profId)) return false;
+    return !!a.inicio_iso;
+  });
+
+  if (filtrados.length === 0) {
+    return { ok: true, data: null };
+  }
+
+  filtrados.sort(function(a, b) {
+    return String(b.inicio_iso).localeCompare(String(a.inicio_iso));
+  });
+
+  return {
+    ok: true,
+    data: {
+      semana_key: filtrados[0].semana_key,
+      dia_key: filtrados[0].dia_key,
+      inicio_iso: filtrados[0].inicio_iso
+    }
+  };
+}
+
 // ─── LISTAR DIA ───────────────────────────────────────────────────────────────
 
 function listarAgendaDia(tokenPayload, dados) {
