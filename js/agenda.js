@@ -208,19 +208,39 @@ const AgendaPage = {
     const payload = {};
     if (profFiltro && profFiltro !== 'all') payload.profissional_id = profFiltro;
 
+    const aplicarSemanaDestino = async (semanaKey, diaKey) => {
+      const atual = String(Store.get('semanaKey') || '');
+      const destino = String(semanaKey || '');
+      if (!destino || destino === atual) return false;
+      Store.set('semanaKey', destino);
+      if (diaKey) Store.set('diaAtual', diaKey);
+      await this._carregarDados();
+      return true;
+    };
+
     try {
       const r = await Api.call('obterSemanaAgendaRecente', payload, { retries: 1, timeout: 15000 });
-      if (!r.ok || !r.data || !r.data.semana_key) return;
-
-      const atual = String(Store.get('semanaKey') || '');
-      const destino = String(r.data.semana_key || '');
-      if (!destino || destino === atual) return;
-
-      Store.set('semanaKey', destino);
-      if (r.data.dia_key) Store.set('diaAtual', r.data.dia_key);
-      await this._carregarDados();
+      if (r.ok && r.data && r.data.semana_key) {
+        const ok = await aplicarSemanaDestino(r.data.semana_key, r.data.dia_key);
+        if (ok) return;
+      }
     } catch (_) {
-      // fallback silencioso
+      // se a action não existir no GAS deploy atual, segue fallback local
+    }
+
+    // Fallback resiliente sem depender de nova action no GAS:
+    // varre semanas anteriores até encontrar agendamentos existentes.
+    let semanaCursor = Store.get('semanaKey') || UI.getSemanaKey();
+    for (let i = 0; i < 104; i++) { // até 2 anos
+      try {
+        const r = await Api.call('listarAgendaSemana', { ...payload, semana_key: semanaCursor }, { retries: 1, timeout: 15000 });
+        const ags = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
+        if (r.ok && ags.length > 0) {
+          await aplicarSemanaDestino(semanaCursor, ags[0]?.dia_key || '');
+          return;
+        }
+      } catch (_) {}
+      semanaCursor = UI.navSemana(semanaCursor, -1);
     }
   },
 
