@@ -751,6 +751,89 @@ const AgendaPage = {
     UI.info('Serviço do pacote selecionado para este agendamento.');
   },
 
+
+  _formatLocalIso(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    const hh = String(dateObj.getHours()).padStart(2, '0');
+    const mm = String(dateObj.getMinutes()).padStart(2, '0');
+    const ss = String(dateObj.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+  },
+
+  _mergeAgendamentosComPendentes(agendamentosServidor, datasServidor) {
+    const serverList = Array.isArray(agendamentosServidor) ? agendamentosServidor : [];
+    const serverIds = new Set(serverList.map(a => String(a.id)));
+    const datasSet = new Set((datasServidor || []).map(String));
+    const now = Date.now();
+
+    const locais = (Store.get('agendamentos') || []).filter((a) => {
+      if (!a || !a._optimistic) return false;
+      if (serverIds.has(String(a.id))) return false;
+
+      const created = parseInt(a._createdLocalTs, 10) || now;
+      const aindaRecente = (now - created) < 180000; // 3 min
+      if (!aindaRecente) return false;
+
+      const dia = String(a.dia_key || '').substring(0, 10);
+      return datasSet.size === 0 || datasSet.has(dia);
+    });
+
+    return [...serverList, ...locais];
+  },
+
+  _atualizarAgendamentoLocal(id, patch) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const anterior = { ...lista[idx] };
+    lista[idx] = { ...lista[idx], ...patch, _optimistic: true, _createdLocalTs: Date.now() };
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return anterior;
+  },
+
+  _inserirAgendamentoLocal(ag) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    lista.push(ag);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+  },
+
+  _removerAgendamentoLocal(id) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const removido = lista[idx];
+    lista.splice(idx, 1);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return removido;
+  },
+
+  async _sincronizarAgendaSilenciosa() {
+    try {
+      const semanaKey = Store.get('semanaKey');
+      const profFiltro = Store.get('profissionalFiltro');
+      const dados = { semana_key: semanaKey };
+      if (profFiltro && profFiltro !== 'all') dados.profissional_id = profFiltro;
+
+      const r = await Api.call('listarAgendaSemana', dados, { retries: 1, timeout: 15000 });
+      if (r.ok && r.data) {
+        const agsMerged = this._mergeAgendamentosComPendentes(r.data.agendamentos, r.data.datas);
+        Store.setMultiple({
+          datas: r.data.datas,
+          agendamentos: agsMerged,
+          bloqueios: r.data.bloqueios
+        });
+        this._renderGrade();
+      }
+    } catch (_) {
+      // sincronização silenciosa (sem toast)
+    }
+  },
+
   async novoClienteRapido() {
     const content = `
       <form id="form-cliente-rapido" class="space-y-3">
