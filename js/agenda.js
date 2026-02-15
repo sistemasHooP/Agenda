@@ -157,31 +157,39 @@ const AgendaPage = {
         dados.profissional_id = profFiltro;
       }
 
-      promises.push(
-        Api.call('listarAgendaSemana', dados).then(r => {
-          if (r.ok) {
-            const datas = Array.isArray(r.data?.datas) ? r.data.datas : (Store.get('datas') || []);
-            const agsServidor = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
-            this._ultimaCargaServidor = { semana_key: String(dados.semana_key || ''), quantidade: agsServidor.length };
-            const bloqsServidor = Array.isArray(r.data?.bloqueios) ? r.data.bloqueios : [];
-            const agsAtuais = Store.get('agendamentos') || [];
+      const cacheAgendaPronto = (Store.get('datas') || []).length > 0 &&
+        String(Store.get('semanaKey')) === String(dados.semana_key) &&
+        Array.isArray(Store.get('agendamentos'));
 
-            const mesmaSemana = String(Store.get('semanaKey')) === String(dados.semana_key);
-            const manterAtuais = agsServidor.length === 0 && agsAtuais.length > 0 && mesmaSemana;
-            const teveMutacaoRecente = (Date.now() - (this._ultimaMutacaoLocalTs || 0)) < 20000;
-            const suspeitaRespostaParcial = mesmaSemana && teveMutacaoRecente && agsServidor.length > 0 && agsServidor.length < agsAtuais.length;
-            const agsFinal = (manterAtuais || suspeitaRespostaParcial)
-              ? this._mergeAgendamentosComPendentes([...agsServidor, ...agsAtuais], datas)
-              : this._mergeAgendamentosComPendentes(agsServidor, datas);
+      if (!cacheAgendaPronto) {
+        promises.push(
+          Api.call('listarAgendaSemana', dados).then(r => {
+            if (r.ok) {
+              const datas = Array.isArray(r.data?.datas) ? r.data.datas : (Store.get('datas') || []);
+              const agsServidor = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
+              this._ultimaCargaServidor = { semana_key: String(dados.semana_key || ''), quantidade: agsServidor.length };
+              const bloqsServidor = Array.isArray(r.data?.bloqueios) ? r.data.bloqueios : [];
+              const agsAtuais = Store.get('agendamentos') || [];
 
-            Store.setMultiple({
-              datas,
-              agendamentos: agsFinal,
-              bloqueios: bloqsServidor
-            });
-          }
-        })
-      );
+              const mesmaSemana = String(Store.get('semanaKey')) === String(dados.semana_key);
+              const manterAtuais = agsServidor.length === 0 && agsAtuais.length > 0 && mesmaSemana;
+              const teveMutacaoRecente = (Date.now() - (this._ultimaMutacaoLocalTs || 0)) < 20000;
+              const suspeitaRespostaParcial = mesmaSemana && teveMutacaoRecente && agsServidor.length > 0 && agsServidor.length < agsAtuais.length;
+              const agsFinal = (manterAtuais || suspeitaRespostaParcial)
+                ? this._mergeAgendamentosComPendentes([...agsServidor, ...agsAtuais], datas)
+                : this._mergeAgendamentosComPendentes(agsServidor, datas);
+
+              Store.setMultiple({
+                datas,
+                agendamentos: agsFinal,
+                bloqueios: bloqsServidor
+              });
+            }
+          })
+        );
+      } else {
+        this._ultimaCargaServidor = { semana_key: String(dados.semana_key || ''), quantidade: (Store.get('agendamentos') || []).length };
+      }
 
       await Promise.all(promises);
 
