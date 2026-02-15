@@ -53,6 +53,19 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
+
+.agenda-slot-row td {
+  height: 44px;
+}
+
+.agenda-time-col {
+  border-right: 1px solid rgba(75, 85, 99, 0.45);
+}
+
+.agenda-fill {
+  border-left: 3px solid var(--agenda-fill);
+}
+
 /* ─── MODAL ANIMATIONS ────────────────────────────────────────────── */
 .modal-content {
   animation: modalIn 0.2s ease-out forwards;
@@ -166,4 +179,14 @@ td, th {
     background: white;
     color: black;
   }
+}
+
+
+.popup-anim {
+  animation: popupSmooth 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes popupSmooth {
+  0% { opacity: 0; transform: translateY(8px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }

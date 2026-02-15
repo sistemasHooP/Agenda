@@ -50,3 +50,17 @@ const APP_CONFIG = {
     '#A855F7', '#D946EF', '#F43F5E', '#FB923C', '#84CC16'
   ]
 };
+
+
+APP_CONFIG.applyRuntimeSettings = function(settings = {}) {
+  if (settings.agenda_hora_inicio !== undefined) this.HORA_INICIO = parseInt(settings.agenda_hora_inicio, 10) || this.HORA_INICIO;
+  if (settings.agenda_hora_fim !== undefined) this.HORA_FIM = parseInt(settings.agenda_hora_fim, 10) || this.HORA_FIM;
+  if (settings.agenda_intervalo_min !== undefined) this.INTERVALO_MIN = parseInt(settings.agenda_intervalo_min, 10) || this.INTERVALO_MIN;
+  this.PERMITIR_MULTIPLOS = String(settings.permitir_multiplos || 'false') === 'true';
+  this.EMPRESA_NOME = settings.empresa_nome || 'MinhaAgenda';
+  this.WHATSAPP_EMPRESA = settings.whatsapp_empresa || '';
+  this.MSG_LEMBRETE_PADRAO = settings.mensagem_lembrete_padrao || '';
+  this.MSG_RAPIDA_PADRAO = settings.mensagem_rapida_padrao || '';
+};
+
+APP_CONFIG.applyRuntimeSettings();

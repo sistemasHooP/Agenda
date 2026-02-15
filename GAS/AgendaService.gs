@@ -83,6 +83,11 @@ function checarConflito(profissionalId, inicioIso, fimIso, excluirAgendamentoId)
   var agendamentos = buscarAgendaSemana(semanaKey, profissionalId);
   var bloqueios = buscarBloqueiosSemana(semanaKey, profissionalId);
 
+  var cfg = getConfiguracoesSistema();
+  if (String(cfg.permitir_multiplos) === 'true') {
+    return { conflito: false };
+  }
+
   // Verificar conflito com agendamentos existentes
   for (var i = 0; i < agendamentos.length; i++) {
     var a = agendamentos[i];
@@ -172,6 +177,27 @@ function criarAgendamento(tokenPayload, dados) {
 
   inserirRegistro(SHEETS.AGENDAMENTOS, registro);
   invalidarCacheAgenda(semanaKey, dados.profissional_id);
+
+  // Se vinculado a pacote, dar baixa imediata
+  if (dados.pacote_vendido_id && (dados.pacote_servico_id || dados.servico_id)) {
+    try {
+      var baixaResp = darBaixaPorAgendamento(tokenPayload, {
+        agendamento_id: id,
+        pacote_vendido_id: dados.pacote_vendido_id,
+        servico_id: dados.pacote_servico_id || dados.servico_id
+      });
+      if (!baixaResp || baixaResp.ok !== true) {
+        removerRegistro(SHEETS.AGENDAMENTOS, id);
+        invalidarCacheAgenda(semanaKey, dados.profissional_id);
+        return { ok: false, msg: (baixaResp && baixaResp.msg) ? baixaResp.msg : 'Falha ao dar baixa no pacote.' };
+      }
+    } catch (e) {
+      removerRegistro(SHEETS.AGENDAMENTOS, id);
+      invalidarCacheAgenda(semanaKey, dados.profissional_id);
+      Logger.log('Erro na baixa imediata do pacote: ' + e.message);
+      return { ok: false, msg: 'Erro ao vincular pacote no agendamento.' };
+    }
+  }
 
   registrarLog('criar_agendamento', tokenPayload.uid, 'Agendamento: ' + id);
 
@@ -301,4 +327,45 @@ function marcarStatus(tokenPayload, dados) {
   }
 
   return { ok: true, msg: 'Status atualizado para: ' + dados.status };
+}
+
+
+function excluirAgendamento(tokenPayload, dados) {
+  exigirAutenticado(tokenPayload);
+
+  if (!dados.id) return { ok: false, msg: 'ID é obrigatório.' };
+
+  var existente = buscarPorId(SHEETS.AGENDAMENTOS, dados.id);
+  if (!existente) return { ok: false, msg: 'Agendamento não encontrado.' };
+
+  if (tokenPayload.role === CONFIG.ROLES.PROFISSIONAL && String(tokenPayload.pid) !== String(existente.profissional_id)) {
+    return { ok: false, msg: 'Sem permissão.' };
+  }
+
+  // Estornar baixas de pacote vinculadas ao agendamento
+  var usos = buscarPorFiltro(SHEETS.PACOTES_USOS, { agendamento_id: dados.id }, false);
+  for (var i = 0; i < usos.length; i++) {
+    var uso = usos[i];
+    var saldos = buscarPorFiltro(SHEETS.PACOTES_SALDOS, {
+      pacote_vendido_id: uso.pacote_vendido_id,
+      servico_id: uso.servico_id
+    }, false);
+
+    if (saldos.length > 0) {
+      var saldo = saldos[0];
+      var usada = parseInt(saldo.qtd_usada, 10) || 0;
+      var qtdUso = parseInt(uso.qtd, 10) || 1;
+      atualizarRegistro(SHEETS.PACOTES_SALDOS, saldo.id, {
+        qtd_usada: Math.max(0, usada - qtdUso)
+      });
+    }
+
+    removerRegistro(SHEETS.PACOTES_USOS, uso.id);
+  }
+
+  removerRegistro(SHEETS.AGENDAMENTOS, dados.id);
+  invalidarCacheAgenda(existente.semana_key, existente.profissional_id);
+  registrarLog('excluir_agendamento', tokenPayload.uid, 'ID: ' + dados.id);
+
+  return { ok: true, msg: 'Agendamento excluído.' };
 }
