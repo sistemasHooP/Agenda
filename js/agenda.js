@@ -11,10 +11,28 @@ const AgendaPage = {
 
     container.innerHTML = this._layoutHTML();
     this._fallbackSemanaTentado = false;
-    await this._processarPendenciasSilencioso();
-    await this._carregarDados();
+
+    // Não bloquear render por pendências antigas
+    this._processarPendenciasSilencioso();
+
+    // Render imediato para evitar skeleton infinito
+    if (!(Store.get('datas') || []).length) {
+      Store.set('datas', UI.getDatasDaSemana(semanaKey));
+    }
     this._renderGrade();
     this._bindEvents();
+
+    // Carga principal com timeout de segurança
+    try {
+      await Promise.race([
+        this._carregarDados(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout_agenda')), 12000))
+      ]);
+    } catch (_) {
+      // mantém grade já renderizada; sync de fundo continua
+    }
+
+    this._renderGrade();
   },
 
   _layoutHTML() {
@@ -92,7 +110,7 @@ const AgendaPage = {
     const pend = this._getPendencias();
     if (!pend.length) return;
 
-    for (const p of pend) {
+    for (const p of pend.slice(0, 5)) {
       if (p.tipo !== 'criarAgendamento') continue;
       const r = await Api.call('criarAgendamento', p.dados, { retries: 1, timeout: 15000 });
       if (r.ok) {
