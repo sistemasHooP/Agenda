@@ -181,13 +181,21 @@ function criarAgendamento(tokenPayload, dados) {
   // Se vinculado a pacote, dar baixa imediata
   if (dados.pacote_vendido_id && (dados.pacote_servico_id || dados.servico_id)) {
     try {
-      darBaixaPorAgendamento(tokenPayload, {
+      var baixaResp = darBaixaPorAgendamento(tokenPayload, {
         agendamento_id: id,
         pacote_vendido_id: dados.pacote_vendido_id,
         servico_id: dados.pacote_servico_id || dados.servico_id
       });
+      if (!baixaResp || baixaResp.ok !== true) {
+        removerRegistro(SHEETS.AGENDAMENTOS, id);
+        invalidarCacheAgenda(semanaKey, dados.profissional_id);
+        return { ok: false, msg: (baixaResp && baixaResp.msg) ? baixaResp.msg : 'Falha ao dar baixa no pacote.' };
+      }
     } catch (e) {
+      removerRegistro(SHEETS.AGENDAMENTOS, id);
+      invalidarCacheAgenda(semanaKey, dados.profissional_id);
       Logger.log('Erro na baixa imediata do pacote: ' + e.message);
+      return { ok: false, msg: 'Erro ao vincular pacote no agendamento.' };
     }
   }
 

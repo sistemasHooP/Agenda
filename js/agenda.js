@@ -96,6 +96,13 @@ const AgendaPage = {
       const r = await Api.call('criarAgendamento', p.dados, { retries: 1, timeout: 15000 });
       if (r.ok) {
         this._removePendencia(p.id);
+        continue;
+      }
+
+      const msg = String(r?.msg || '').toLowerCase();
+      const erroNegocio = msg.includes('saldo') || msg.includes('pacote') || msg.includes('conflito') || msg.includes('não encontrado');
+      if (erroNegocio) {
+        this._removePendencia(p.id);
       }
     }
   },
@@ -262,9 +269,9 @@ const AgendaPage = {
       const slot = slots[s];
       const isHourStart = slot.endsWith(':00');
 
-      html += `<tr class="${isHourStart ? 'border-t border-gray-700' : ''}">`;
-      html += `<td class="sticky left-0 bg-gray-800 z-10 px-2 py-1 text-right">
-        <span class="text-xs ${isHourStart ? 'text-gray-400' : 'text-gray-600'} font-mono">${slot}</span>
+      html += `<tr class="${isHourStart ? 'border-t border-gray-700' : ''} agenda-slot-row">`;
+      html += `<td class="sticky left-0 bg-gray-800 z-10 px-2 py-1 text-right agenda-time-col">
+        <span class="text-xs ${isHourStart ? 'text-gray-300 font-semibold' : 'text-gray-500'} font-mono">${slot}</span>
       </td>`;
 
       for (let d = 0; d < datas.length; d++) {
@@ -301,7 +308,7 @@ const AgendaPage = {
                 <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
                 <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)} - ${UI.formatarHora(item.fim_iso)}</span>
               </div>
-              ${item.tags ? `<div class="text-[10px] text-blue-300 truncate">${UI.escapeHtml(item.tags)}</div>` : ''}
+              <div class="text-[10px] ${statusCfg.text} uppercase truncate">${UI.escapeHtml(item.status || '')}</div>${item.tags ? `<div class=\"text-[10px] text-blue-300 truncate\">${UI.escapeHtml(item.tags)}</div>` : ''}
               ${Auth.isAdmin() ? `<div class="text-gray-500 text-[10px] truncate">${UI.escapeHtml(prof.nome || '')}</div>` : ''}
             </div>`;
           }).join('');
@@ -313,8 +320,8 @@ const AgendaPage = {
           const serv = servicosMap[agend.servico_id] || {};
           const cor = serv.cor || '#3B82F6';
           const isCancelado = agend.status === APP_CONFIG.STATUS.CANCELADO;
-          cellClass = `px-1 py-1 border-l border-gray-700/50 ${isCancelado ? 'opacity-70' : ''}`;
-          cellContent = `<div class="h-full min-h-[34px]" style="background:${cor}22;"></div>`;
+          cellClass = `p-0 border-l border-gray-700/50 ${isCancelado ? 'opacity-70' : ''}`;
+          cellContent = `<div class="agenda-fill h-full min-h-[44px]" style="--agenda-fill:${cor}; background:${cor}22;"></div>`;
         }
 
         html += `<td class="${cellClass}" data-date="${cellDate}" data-time="${slot}" onclick="AgendaPage.clickSlot('${cellDate}','${slot}')">
@@ -953,10 +960,18 @@ const AgendaPage = {
     const r = await Api.call('criarAgendamento', dados);
     if (r.ok) {
       this._removePendencia(pendId);
-      this._atualizarAgendamentoLocal(tempId, { id: r.data.id });
+      this._atualizarAgendamentoLocal(tempId, { id: r.data.id, _pendenciaId: '' });
       UI.success('Agendamento criado!');
       this._sincronizarAgendaSilenciosa();
     } else {
+      const msg = String(r.msg || '').toLowerCase();
+      const erroPacoteOuConflito = msg.includes('saldo') || msg.includes('pacote') || msg.includes('conflito') || msg.includes('não encontrado');
+      if (erroPacoteOuConflito) {
+        this._removePendencia(pendId);
+        this._removerAgendamentoLocal(tempId);
+        UI.error(r.msg || 'Não foi possível criar o agendamento.');
+        return;
+      }
       UI.warning('Agendamento salvo localmente e será sincronizado automaticamente.');
     }
   },
