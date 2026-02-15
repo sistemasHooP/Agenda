@@ -263,6 +263,11 @@ const AgendaPage = {
                 bloqueios: bloqsServidor
               });
 
+              const diaResolvido = this._resolverDiaAtual(datas);
+              if (String(Store.get('diaAtual') || '') !== String(diaResolvido)) {
+                Store.set('diaAtual', diaResolvido);
+              }
+
               this._debugAgendaLog('carregar_sucesso', {
                 origem,
                 reqId: req.reqId,
@@ -521,11 +526,15 @@ const AgendaPage = {
   },
 
   _renderDia(gradeEl, periodoEl) {
-    const diaAtual = Store.get('diaAtual') || UI.getHoje();
+    const datasSemana = Store.get('datas') || [];
+    const diaAtual = this._resolverDiaAtual(datasSemana);
     Store.set('diaAtual', diaAtual);
 
-    const agendamentos = (Store.get('agendamentos') || []).filter(a => a.dia_key === diaAtual);
-    const bloqueios = Store.get('bloqueios') || [];
+    const agendamentos = (Store.get('agendamentos') || []).filter(a => this._getAgendamentoDiaKey(a) === diaAtual);
+    const bloqueios = (Store.get('bloqueios') || []).filter((b) => {
+      const inicio = this._parseIsoLocalParts(b?.inicio_iso);
+      return inicio && inicio.dateKey === diaAtual;
+    });
     const slots = UI.gerarSlots();
     const servicos = Store.get('servicos') || [];
     const profissionais = Store.get('profissionais') || [];
@@ -588,6 +597,26 @@ const AgendaPage = {
 
     html += '</div>';
     gradeEl.innerHTML = html;
+  },
+
+  _resolverDiaAtual(datasSemana) {
+    const datas = Array.isArray(datasSemana) ? datasSemana : [];
+    const hoje = UI.getHoje();
+    const atual = String(Store.get('diaAtual') || '').substring(0, 10);
+
+    if (!datas.length) {
+      return atual || hoje;
+    }
+
+    if (atual && datas.includes(atual)) return atual;
+    if (datas.includes(hoje)) return hoje;
+    return String(datas[0]);
+  },
+
+  _getAgendamentoDiaKey(agendamento) {
+    const dia = String(agendamento?.dia_key || '').substring(0, 10);
+    if (dia) return dia;
+    return String(this._parseIsoLocalParts(agendamento?.inicio_iso)?.dateKey || '');
   },
 
   _buildClienteMap() {
@@ -897,7 +926,7 @@ const AgendaPage = {
 
     const localValidos = (Store.get('agendamentos') || []).filter((a) => {
       if (!a) return false;
-      const dia = String(a.dia_key || this._parseIsoLocalParts(a.inicio_iso)?.dateKey || '').substring(0, 10);
+      const dia = this._getAgendamentoDiaKey(a);
       if (datasSet.size > 0 && !datasSet.has(dia)) return false;
 
       if (!a._optimistic) return true;
