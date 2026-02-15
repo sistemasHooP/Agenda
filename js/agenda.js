@@ -236,10 +236,11 @@ const AgendaPage = {
             const cor = serv.cor || '#3B82F6';
             const statusCfg = APP_CONFIG.STATUS_CORES[item.status] || APP_CONFIG.STATUS_CORES.marcado;
             const clienteNome = clientesMap[item.cliente_id] || item._clienteNome || 'Cliente';
-            return `<div class="agenda-card rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.02] mb-1"
+            const isCancelado = item.status === APP_CONFIG.STATUS.CANCELADO;
+            return `<div class="agenda-card rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.02] mb-1 ${isCancelado ? 'opacity-70' : ''}"
               style="border-left-color:${cor}; background: ${cor}15;"
               onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${item.id}')">
-              <div class="font-semibold text-white truncate">${UI.escapeHtml(clienteNome)}</div>
+              <div class="font-semibold text-white truncate ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(clienteNome)}</div>
               <div class="flex items-center gap-1 mt-0.5">
                 <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
                 <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)}</span>
@@ -313,11 +314,12 @@ const AgendaPage = {
           const serv = servicosMap[item.servico_id] || {};
           const prof = profsMap[item.profissional_id] || {};
           const cor = serv.cor || '#3B82F6';
-          return `<div class="rounded-xl px-4 py-3 border-l-4 cursor-pointer hover:scale-[1.01] transition-transform mb-2"
+          const isCancelado = item.status === APP_CONFIG.STATUS.CANCELADO;
+          return `<div class="rounded-xl px-4 py-3 border-l-4 cursor-pointer hover:scale-[1.01] transition-transform mb-2 ${isCancelado ? 'opacity-70' : ''}"
             style="border-left-color:${cor}; background: ${cor}15;"
             onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${item.id}')">
             <div class="flex items-center justify-between">
-              <span class="font-semibold text-white">${UI.escapeHtml(item._clienteNome || 'Cliente')}</span>
+              <span class="font-semibold text-white ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(item._clienteNome || 'Cliente')}</span>
               ${UI.statusBadge(item.status)}
             </div>
             <div class="text-gray-400 text-sm mt-1">${UI.escapeHtml(serv.nome || '')} ${serv.duracao_min ? `(${serv.duracao_min}min)` : ''}</div>
@@ -346,7 +348,6 @@ const AgendaPage = {
   _agendamentosIniciandoNoSlot(agendamentos, dateStr, timeSlot) {
     const slotTime = new Date(dateStr + 'T' + timeSlot + ':00').getTime();
     return agendamentos.filter((a) => {
-      if (String(a.status) === 'cancelado') return false;
       const inicio = new Date(a.inicio_iso).getTime();
       return inicio === slotTime;
     });
@@ -356,7 +357,6 @@ const AgendaPage = {
     const slotTime = new Date(dateStr + 'T' + timeSlot + ':00').getTime();
 
     for (const a of agendamentos) {
-      if (String(a.status) === 'cancelado') continue;
       const inicio = new Date(a.inicio_iso).getTime();
       const fim = new Date(a.fim_iso).getTime();
       const slotEnd = slotTime + APP_CONFIG.INTERVALO_MIN * 60000;
@@ -434,7 +434,6 @@ const AgendaPage = {
     const encontrados = [];
 
     for (const a of agendamentos) {
-      if (String(a.status) === 'cancelado') continue;
       const inicio = new Date(a.inicio_iso).getTime();
       const fim = new Date(a.fim_iso).getTime();
       if (slotTime >= inicio && slotTime < fim) encontrados.push(a);
@@ -524,6 +523,13 @@ const AgendaPage = {
           </div>
         </div>
 
+        <div id="ag-pacotes-area" class="hidden">
+          <label class="block text-sm text-gray-400 mb-1">Pacotes ativos do cliente</label>
+          <div id="ag-pacotes-list" class="space-y-2"></div>
+          <input type="hidden" id="ag-pacote-vendido-id">
+          <input type="hidden" id="ag-pacote-servico-id">
+        </div>
+
         <div>
           <label class="block text-sm text-gray-400 mb-1">Observação</label>
           <textarea id="ag-obs" rows="2" maxlength="500"
@@ -603,6 +609,146 @@ const AgendaPage = {
     document.getElementById('ag-cliente-id').value = id;
     document.getElementById('ag-cliente-busca').value = nome;
     document.getElementById('ag-cliente-results').classList.add('hidden');
+    this._carregarPacotesClienteNoModal(id);
+  },
+
+
+  _formatLocalIso(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    const hh = String(dateObj.getHours()).padStart(2, '0');
+    const mm = String(dateObj.getMinutes()).padStart(2, '0');
+    const ss = String(dateObj.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+  },
+
+  _mergeAgendamentosComPendentes(agendamentosServidor, datasServidor) {
+    const serverList = Array.isArray(agendamentosServidor) ? agendamentosServidor : [];
+    const serverIds = new Set(serverList.map(a => String(a.id)));
+    const datasSet = new Set((datasServidor || []).map(String));
+    const now = Date.now();
+
+    const locais = (Store.get('agendamentos') || []).filter((a) => {
+      if (!a || !a._optimistic) return false;
+      if (serverIds.has(String(a.id))) return false;
+
+      const created = parseInt(a._createdLocalTs, 10) || now;
+      const aindaRecente = (now - created) < 180000; // 3 min
+      if (!aindaRecente) return false;
+
+      const dia = String(a.dia_key || '').substring(0, 10);
+      return datasSet.size === 0 || datasSet.has(dia);
+    });
+
+    return [...serverList, ...locais];
+  },
+
+  _atualizarAgendamentoLocal(id, patch) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const anterior = { ...lista[idx] };
+    lista[idx] = { ...lista[idx], ...patch, _optimistic: true, _createdLocalTs: Date.now() };
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return anterior;
+  },
+
+  _inserirAgendamentoLocal(ag) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    lista.push(ag);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+  },
+
+  _removerAgendamentoLocal(id) {
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const removido = lista[idx];
+    lista.splice(idx, 1);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return removido;
+  },
+
+  async _sincronizarAgendaSilenciosa() {
+    try {
+      const semanaKey = Store.get('semanaKey');
+      const profFiltro = Store.get('profissionalFiltro');
+      const dados = { semana_key: semanaKey };
+      if (profFiltro && profFiltro !== 'all') dados.profissional_id = profFiltro;
+
+      const r = await Api.call('listarAgendaSemana', dados, { retries: 1, timeout: 15000 });
+      if (r.ok && r.data) {
+        const agsMerged = this._mergeAgendamentosComPendentes(r.data.agendamentos, r.data.datas);
+        Store.setMultiple({
+          datas: r.data.datas,
+          agendamentos: agsMerged,
+          bloqueios: r.data.bloqueios
+        });
+        this._renderGrade();
+      }
+    } catch (_) {
+      // sincronização silenciosa (sem toast)
+    }
+  },
+
+
+  async _carregarPacotesClienteNoModal(clienteId) {
+    const area = document.getElementById('ag-pacotes-area');
+    const list = document.getElementById('ag-pacotes-list');
+    if (!area || !list || !clienteId) return;
+
+    const r = await Api.call('listarPacotesCliente', { cliente_id: clienteId });
+    if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) {
+      area.classList.add('hidden');
+      list.innerHTML = '';
+      document.getElementById('ag-pacote-vendido-id').value = '';
+      document.getElementById('ag-pacote-servico-id').value = '';
+      return;
+    }
+
+    const opcoes = [];
+    r.data.forEach((v) => {
+      (v.saldos || []).forEach((s) => {
+        const restante = parseInt(s.qtd_restante, 10) || 0;
+        if (restante > 0) opcoes.push({
+          pacote_vendido_id: v.id,
+          pacote_nome: v.modelo_nome || 'Pacote',
+          servico_id: s.servico_id,
+          servico_nome: s.servico_nome,
+          restante
+        });
+      });
+    });
+
+    if (opcoes.length === 0) {
+      area.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+
+    area.classList.remove('hidden');
+    list.innerHTML = opcoes.map((o) => `
+      <button type="button" class="w-full text-left bg-gray-900 border border-gray-700 rounded-xl p-2 hover:border-blue-500"
+        onclick="AgendaPage.selecionarServicoPacote('${o.pacote_vendido_id}','${o.servico_id}')">
+        <div class="text-sm text-white">${UI.escapeHtml(o.pacote_nome)} · ${UI.escapeHtml(o.servico_nome)}</div>
+        <div class="text-xs text-emerald-400">Restante: ${o.restante}</div>
+      </button>
+    `).join('');
+  },
+
+  selecionarServicoPacote(pacoteVendidoId, servicoId) {
+    const pv = document.getElementById('ag-pacote-vendido-id');
+    const ps = document.getElementById('ag-pacote-servico-id');
+    if (pv) pv.value = pacoteVendidoId;
+    if (ps) ps.value = servicoId;
+
+    const servSel = document.getElementById('ag-servico');
+    if (servSel) servSel.value = servicoId;
+    UI.info('Serviço do pacote selecionado para este agendamento.');
   },
 
 
@@ -754,7 +900,9 @@ const AgendaPage = {
       servico_id: document.getElementById('ag-servico').value,
       inicio_iso: data + 'T' + hora + ':00',
       tags: tags,
-      obs: document.getElementById('ag-obs').value.trim()
+      obs: document.getElementById('ag-obs').value.trim(),
+      pacote_vendido_id: document.getElementById('ag-pacote-vendido-id')?.value || '',
+      pacote_servico_id: document.getElementById('ag-pacote-servico-id')?.value || ''
     };
 
     const servSel = (Store.get('servicos') || []).find(s => s.id === dados.servico_id);
@@ -879,8 +1027,12 @@ const AgendaPage = {
       size: 'md',
       footer: canCancel ? `
         <button onclick="AgendaPage.cancelar('${agend.id}')" class="px-4 py-2 rounded-xl bg-red-600/20 text-red-400 hover:bg-red-600/30 text-sm font-medium">Cancelar Agendamento</button>
+        <button onclick="AgendaPage.excluir('${agend.id}')" class="px-4 py-2 rounded-xl bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 text-sm font-medium">Excluir</button>
         <button onclick="UI.closeModal()" class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium">Fechar</button>
-      ` : `<button onclick="UI.closeModal()" class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium">Fechar</button>`
+      ` : `
+        <button onclick="AgendaPage.excluir('${agend.id}')" class="px-4 py-2 rounded-xl bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 text-sm font-medium">Excluir</button>
+        <button onclick="UI.closeModal()" class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium">Fechar</button>
+      `
     });
   },
 
@@ -912,6 +1064,23 @@ const AgendaPage = {
     } else {
       if (anterior) this._atualizarAgendamentoLocal(id, { status: anterior.status });
       UI.error(r.msg);
+    }
+  },
+
+  async excluir(id) {
+    const ok = await UI.confirm('Excluir agendamento', 'Deseja realmente excluir este agendamento? Se houver baixa de pacote, o saldo será estornado.');
+    if (!ok) return;
+
+    const removido = this._removerAgendamentoLocal(id);
+    UI.closeModal();
+
+    const r = await Api.call('excluirAgendamento', { id });
+    if (r.ok) {
+      UI.success(r.msg || 'Agendamento excluído.');
+      this._sincronizarAgendaSilenciosa();
+    } else {
+      if (removido) this._inserirAgendamentoLocal(removido);
+      UI.error(r.msg || 'Erro ao excluir.');
     }
   },
 

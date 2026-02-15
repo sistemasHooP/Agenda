@@ -113,6 +113,9 @@
             <div class="lg:hidden w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
               <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             </div>
+            <button id="mobile-menu-toggle" class="lg:hidden text-gray-300 hover:text-white p-2 rounded-lg hover:bg-gray-800" title="Menu">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
             <h2 id="page-title" class="text-white font-semibold">Agenda</h2>
           </div>
           <div class="flex items-center gap-2">
@@ -131,7 +134,7 @@
     </main>
 
     <!-- ─── BOTTOM NAV (mobile) ──────────────────────────────────────── -->
-    <nav id="bottom-nav" class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-gray-800/95 backdrop-blur-xl border-t border-gray-700 safe-bottom">
+    <nav id="bottom-nav" class="hidden fixed bottom-0 inset-x-0 z-30 bg-gray-800/95 backdrop-blur-xl border-t border-gray-700 safe-bottom">
       <div class="flex items-center justify-around py-2">
         <button data-nav="agenda" class="flex flex-col items-center gap-0.5 py-1 px-3 text-blue-400">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
@@ -156,6 +159,31 @@
       </div>
     </nav>
   </div>
+
+
+
+  <!-- Mobile drawer menu -->
+  <div id="mobile-drawer-overlay" class="hidden fixed inset-0 bg-black/50 z-40"></div>
+  <aside id="mobile-drawer" class="lg:hidden fixed inset-y-0 left-0 w-72 bg-gray-800 border-r border-gray-700 z-50 transform -translate-x-full transition-transform duration-200">
+    <div class="flex items-center justify-between px-4 py-4 border-b border-gray-700">
+      <h3 class="text-white font-semibold">Menu</h3>
+      <button id="mobile-menu-close" class="text-gray-400 hover:text-white">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <nav class="p-3 space-y-1 overflow-y-auto h-[calc(100%-64px)]">
+      <a href="#" data-sidebar="agenda" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Agenda</a>
+      <a href="#" data-sidebar="clientes" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Clientes</a>
+      <a href="#" data-sidebar="servicos" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Serviços</a>
+      <a href="#" data-sidebar="pacotes" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Pacotes</a>
+      <div id="mobile-admin-nav-section" class="hidden pt-3 border-t border-gray-700 mt-3 space-y-1">
+        <a href="#" data-sidebar="profissionais" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Profissionais</a>
+        <a href="#" data-sidebar="relatorios" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Relatórios</a>
+        <a href="#" data-sidebar="lembretes" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Lembretes</a>
+        <a href="#" data-sidebar="configuracoes" class="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700">Configurações</a>
+      </div>
+    </nav>
+  </aside>
 
   <!-- Toast container -->
   <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2"></div>
@@ -201,10 +229,26 @@
       // Mostrar navegação admin se for admin
       if (user.role === 'ADMIN') {
         document.getElementById('admin-nav-section')?.classList.remove('hidden');
+        document.getElementById('mobile-admin-nav-section')?.classList.remove('hidden');
         const adminBtn = document.getElementById('nav-admin-btn');
         if (adminBtn) adminBtn.classList.remove('hidden');
         if (adminBtn) adminBtn.classList.add('flex');
       }
+
+      // Drawer mobile
+      const drawer = document.getElementById('mobile-drawer');
+      const overlay = document.getElementById('mobile-drawer-overlay');
+      const openDrawer = () => {
+        drawer?.classList.remove('-translate-x-full');
+        overlay?.classList.remove('hidden');
+      };
+      const closeDrawer = () => {
+        drawer?.classList.add('-translate-x-full');
+        overlay?.classList.add('hidden');
+      };
+      document.getElementById('mobile-menu-toggle')?.addEventListener('click', openDrawer);
+      document.getElementById('mobile-menu-close')?.addEventListener('click', closeDrawer);
+      overlay?.addEventListener('click', closeDrawer);
 
       // Atualizar título da página com base na navegação
       Store.on((key) => {
@@ -229,11 +273,28 @@
       Api.call('listarConfiguracoes').then((r) => {
         if (r && r.ok && r.data) {
           APP_CONFIG.applyRuntimeSettings(r.data);
+          if (Store.get('paginaAtual') === 'agenda' && window.AgendaPage && typeof AgendaPage._renderGrade === 'function') {
+            AgendaPage._renderGrade();
+          }
         }
       }).catch(() => {});
 
+      // Pré-carregar dados para app iniciar fluido
+      Promise.all([
+        Api.call('listarProfissionais').then((r)=>{ if(r.ok) { Store.set('profissionais', r.data); Store.markRefreshed('profissionais'); } }),
+        Api.call('listarServicos').then((r)=>{ if(r.ok) { Store.set('servicos', r.data); Store.markRefreshed('servicos'); } }),
+        Api.call('listarClientes').then((r)=>{ if(r.ok) { Store.set('clientes', Array.isArray(r.data)?r.data:(r.data?.itens||[])); Store.markRefreshed('clientes'); } })
+      ]).catch(()=>{});
+
       // Inicializar roteador
       Router.init();
+
+      document.querySelectorAll('#mobile-drawer [data-sidebar], #mobile-drawer [data-nav]').forEach((el)=>{
+        el.addEventListener('click', ()=>{
+          document.getElementById('mobile-drawer')?.classList.add('-translate-x-full');
+          document.getElementById('mobile-drawer-overlay')?.classList.add('hidden');
+        });
+      });
     })();
   </script>
 </body>

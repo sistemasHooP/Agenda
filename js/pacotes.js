@@ -3,6 +3,12 @@
  * Página de Pacotes: modelos, vendas, saldos, extrato
  */
 
+const PARCEIROS_DESCONTO = [
+  { id: "none", nome: "Sem parceiro", pct: 0 },
+  { id: "parceiro10", nome: "Parceiro 10%", pct: 10 },
+  { id: "parceiro15", nome: "Parceiro 15%", pct: 15 }
+];
+
 const PacotesPage = {
   async render(container) {
     container.innerHTML = this._layoutHTML();
@@ -360,6 +366,13 @@ const PacotesPage = {
           <div class="flex justify-between"><span class="text-gray-400">Total final</span><span id="vp-total-preview" class="text-emerald-400 font-semibold">R$ 0,00</span></div>
         </div>
         <div>
+          <label class="block text-sm text-gray-400 mb-1">Parceiro (desconto sugerido)</label>
+          <select id="vp-parceiro" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm focus:border-blue-500 focus:outline-none">
+            ${PARCEIROS_DESCONTO.map(p => `<option value="${p.id}">${UI.escapeHtml(p.nome)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div>
           <label class="block text-sm text-gray-400 mb-1">Observação</label>
           <textarea id="vp-obs" rows="2" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-white text-sm focus:border-blue-500 focus:outline-none resize-none"></textarea>
         </div>
@@ -381,6 +394,7 @@ const PacotesPage = {
     this._bindCalculoVenda();
 
     document.getElementById('vp-modelo')?.addEventListener('change', () => this._calcularValorPacoteSelecionado());
+    document.getElementById('vp-parceiro')?.addEventListener('change', () => this._aplicarParceiroDesconto());
 
     document.getElementById('vp-cancelar')?.addEventListener('click', modal.close);
     document.getElementById('vp-salvar')?.addEventListener('click', async () => {
@@ -411,6 +425,17 @@ const PacotesPage = {
         UI.error(r.msg);
       }
     });
+  },
+
+  _aplicarParceiroDesconto() {
+    const parceiroId = document.getElementById('vp-parceiro')?.value || 'none';
+    const parceiro = PARCEIROS_DESCONTO.find(p => p.id === parceiroId) || PARCEIROS_DESCONTO[0];
+    const el = document.getElementById('vp-desc-percent');
+    if (el && parceiro.pct > 0) {
+      el.value = parceiro.pct;
+      document.getElementById('vp-desc-valor').value = 0;
+      this._atualizarPreviewTotalVenda();
+    }
   },
 
   _bindCalculoVenda() {
