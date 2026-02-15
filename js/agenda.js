@@ -5,6 +5,11 @@
 
 const AgendaPage = {
   PENDENCIAS_KEY: 'ma2_agenda_pendencias',
+  _agendaRequestSeq: 0,
+  _agendaRequestAtual: 0,
+  _agendaLoadKeyAtual: '',
+  _fallbackSemanaTentado: false,
+
   async render(container) {
     const semanaKey = Store.get('semanaKey') || UI.getSemanaKey();
     Store.set('semanaKey', semanaKey);
@@ -25,7 +30,7 @@ const AgendaPage = {
     // Carga principal com timeout de segurança
     try {
       await Promise.race([
-        this._carregarDados(),
+        this._carregarDados({ forceAgendaFetch: true, origem: 'render' }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('timeout_agenda')), 12000))
       ]);
     } catch (_) {
@@ -78,6 +83,47 @@ const AgendaPage = {
     `;
   },
 
+  _debugAgendaLog(evento, extra = {}) {
+    try {
+      console.log('[AgendaPage]', evento, {
+        semanaKey: Store.get('semanaKey'),
+        profissionalFiltro: Store.get('profissionalFiltro'),
+        ...extra
+      });
+    } catch (_) {}
+  },
+
+  _getAgendaLoadKey(semanaKey, profFiltro) {
+    return `${String(semanaKey || '')}|${String(profFiltro || 'all')}`;
+  },
+
+  _abrirRequisicaoAgenda(semanaKey, profFiltro) {
+    const reqId = ++this._agendaRequestSeq;
+    this._agendaRequestAtual = reqId;
+    this._agendaLoadKeyAtual = this._getAgendaLoadKey(semanaKey, profFiltro);
+    return { reqId, loadKey: this._agendaLoadKeyAtual };
+  },
+
+  _requisicaoAgendaAindaValida(reqId, loadKey) {
+    return this._agendaRequestAtual === reqId && this._agendaLoadKeyAtual === loadKey;
+  },
+
+  _navegarSemana(direcao) {
+    const sk = UI.navSemana(Store.get('semanaKey'), direcao);
+    Store.set('semanaKey', sk);
+    Store.set('datas', UI.getDatasDaSemana(sk));
+    this._renderGrade();
+    this._carregarDados({ forceAgendaFetch: true, origem: 'navegacao_semana' }).then(() => this._renderGrade());
+  },
+
+  _recarregarSemanaAtual(origem) {
+    const sk = Store.get('semanaKey') || UI.getSemanaKey();
+    Store.set('semanaKey', sk);
+    Store.set('datas', UI.getDatasDaSemana(sk));
+    this._renderGrade();
+    this._carregarDados({ forceAgendaFetch: true, origem }).then(() => this._renderGrade());
+  },
+
 
   _getPendencias() {
     try {
@@ -126,17 +172,29 @@ const AgendaPage = {
     }
   },
 
-  async _carregarDados() {
+  async _carregarDados(options = {}) {
+    const forceAgendaFetch = options.forceAgendaFetch !== false;
+    const origem = options.origem || 'desconhecida';
+
+    const semanaKey = Store.get('semanaKey') || UI.getSemanaKey();
+    const profFiltro = Store.get('profissionalFiltro');
+    const req = this._abrirRequisicaoAgenda(semanaKey, profFiltro);
+
     Store.setLoading('agenda', true);
+    this._debugAgendaLog('carregar_inicio', {
+      origem,
+      reqId: req.reqId,
+      loadKey: req.loadKey,
+      forceAgendaFetch
+    });
 
     try {
-      // Carregar profissionais e serviços se necessário
       const promises = [];
 
       if (Store.needsRefresh('profissionais')) {
         promises.push(
           Api.call('listarProfissionais').then(r => {
-            if (r.ok) {
+            if (r.ok && this._requisicaoAgendaAindaValida(req.reqId, req.loadKey)) {
               Store.set('profissionais', r.data);
               Store.markRefreshed('profissionais');
             }
@@ -147,7 +205,7 @@ const AgendaPage = {
       if (Store.needsRefresh('servicos')) {
         promises.push(
           Api.call('listarServicos').then(r => {
-            if (r.ok) {
+            if (r.ok && this._requisicaoAgendaAindaValida(req.reqId, req.loadKey)) {
               Store.set('servicos', r.data);
               Store.markRefreshed('servicos');
             }
@@ -158,7 +216,7 @@ const AgendaPage = {
       if (Store.needsRefresh('clientes')) {
         promises.push(
           Api.call('listarClientes').then(r => {
-            if (r.ok) {
+            if (r.ok && this._requisicaoAgendaAindaValida(req.reqId, req.loadKey)) {
               const clientes = Array.isArray(r.data) ? r.data : (r.data?.itens || []);
               Store.set('clientes', clientes);
               Store.markRefreshed('clientes');
@@ -167,23 +225,25 @@ const AgendaPage = {
         );
       }
 
-      // Carregar agenda
-      const semanaKey = Store.get('semanaKey');
-      const profFiltro = Store.get('profissionalFiltro');
       const dados = { semana_key: semanaKey };
       if (profFiltro && profFiltro !== 'all') {
         dados.profissional_id = profFiltro;
       }
 
-      const cacheAgendaPronto = (Store.get('datas') || []).length > 0 &&
-        String(Store.get('semanaKey')) === String(dados.semana_key) &&
-        Array.isArray(Store.get('agendamentos'));
-
-      if (!cacheAgendaPronto) {
+      if (forceAgendaFetch) {
         promises.push(
           Api.call('listarAgendaSemana', dados).then(r => {
+            if (!this._requisicaoAgendaAindaValida(req.reqId, req.loadKey)) {
+              this._debugAgendaLog('carregar_descartado_stale', {
+                origem,
+                reqId: req.reqId,
+                loadKey: req.loadKey
+              });
+              return;
+            }
+
             if (r.ok) {
-              const datas = Array.isArray(r.data?.datas) ? r.data.datas : (Store.get('datas') || []);
+              const datas = Array.isArray(r.data?.datas) ? r.data.datas : UI.getDatasDaSemana(semanaKey);
               const agsServidor = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
               this._ultimaCargaServidor = { semana_key: String(dados.semana_key || ''), quantidade: agsServidor.length };
               const bloqsServidor = Array.isArray(r.data?.bloqueios) ? r.data.bloqueios : [];
@@ -202,29 +262,39 @@ const AgendaPage = {
                 agendamentos: agsFinal,
                 bloqueios: bloqsServidor
               });
+
+              this._debugAgendaLog('carregar_sucesso', {
+                origem,
+                reqId: req.reqId,
+                semanaKey,
+                totalServidor: agsServidor.length,
+                totalUI: agsFinal.length
+              });
             }
           })
         );
-      } else {
-        this._ultimaCargaServidor = { semana_key: String(dados.semana_key || ''), quantidade: (Store.get('agendamentos') || []).length };
       }
 
       await Promise.all(promises);
 
+      if (!this._requisicaoAgendaAindaValida(req.reqId, req.loadKey)) return;
+
       const semDadosNoServidor = (this._ultimaCargaServidor && this._ultimaCargaServidor.quantidade === 0);
       if (semDadosNoServidor || (Store.get('agendamentos') || []).length === 0) {
-        this._tentarCarregarSemanaComDados(); // fallback em background para não travar a UI
+        this._tentarCarregarSemanaComDados();
       }
 
-      // Popular filtro de profissionais
       this._popularFiltroProfissionais();
-
     } catch (e) {
+      this._debugAgendaLog('carregar_erro', { origem, reqId: req.reqId, erro: e?.message || 'erro_desconhecido' });
       UI.error('Erro ao carregar agenda.');
     } finally {
-      Store.setLoading('agenda', false);
+      if (this._requisicaoAgendaAindaValida(req.reqId, req.loadKey)) {
+        Store.setLoading('agenda', false);
+      }
     }
   },
+
 
   async _tentarCarregarSemanaComDados() {
     if (this._fallbackSemanaTentado) return;
@@ -569,42 +639,39 @@ const AgendaPage = {
 
   _bindEvents() {
     document.getElementById('agenda-prev')?.addEventListener('click', () => {
-      const sk = UI.navSemana(Store.get('semanaKey'), -1);
-      Store.set('semanaKey', sk);
-      this.render(document.getElementById('page-content'));
+      this._navegarSemana(-1);
     });
 
     document.getElementById('agenda-next')?.addEventListener('click', () => {
-      const sk = UI.navSemana(Store.get('semanaKey'), 1);
-      Store.set('semanaKey', sk);
-      this.render(document.getElementById('page-content'));
+      this._navegarSemana(1);
     });
 
     document.getElementById('agenda-hoje')?.addEventListener('click', () => {
       Store.set('semanaKey', UI.getSemanaKey());
       Store.set('diaAtual', UI.getHoje());
-      this.render(document.getElementById('page-content'));
+      this._recarregarSemanaAtual('botao_hoje');
     });
 
     document.getElementById('btn-visao-semana')?.addEventListener('click', () => {
       Store.set('visao', 'semana');
-      this.render(document.getElementById('page-content'));
+      this._renderGrade();
     });
 
     document.getElementById('btn-visao-dia')?.addEventListener('click', () => {
       Store.set('visao', 'dia');
-      this.render(document.getElementById('page-content'));
+      this._renderGrade();
     });
 
     document.getElementById('agenda-filtro-prof')?.addEventListener('change', (e) => {
       Store.set('profissionalFiltro', e.target.value);
-      this.render(document.getElementById('page-content'));
+      this._recarregarSemanaAtual('troca_filtro_profissional');
     });
 
     document.getElementById('btn-novo-bloqueio')?.addEventListener('click', () => {
       this.abrirModalBloqueio();
     });
   },
+
 
   // ─── CLICAR EM SLOT VAZIO ──────────────────────────────────────────
 
@@ -882,14 +949,20 @@ const AgendaPage = {
 
   async _sincronizarAgendaSilenciosa() {
     try {
-      const semanaKey = Store.get('semanaKey');
+      const semanaKey = Store.get('semanaKey') || UI.getSemanaKey();
       const profFiltro = Store.get('profissionalFiltro');
+      const req = this._abrirRequisicaoAgenda(semanaKey, profFiltro);
       const dados = { semana_key: semanaKey };
       if (profFiltro && profFiltro !== 'all') dados.profissional_id = profFiltro;
 
       const r = await Api.call('listarAgendaSemana', dados, { retries: 1, timeout: 15000 });
+      if (!this._requisicaoAgendaAindaValida(req.reqId, req.loadKey)) {
+        this._debugAgendaLog('sync_descartado_stale', { reqId: req.reqId, loadKey: req.loadKey });
+        return;
+      }
+
       if (r.ok && r.data) {
-        const datas = Array.isArray(r.data.datas) ? r.data.datas : (Store.get('datas') || []);
+        const datas = Array.isArray(r.data.datas) ? r.data.datas : (Store.get('datas') || UI.getDatasDaSemana(semanaKey));
         const servidor = Array.isArray(r.data.agendamentos) ? r.data.agendamentos : [];
         const atuais = Store.get('agendamentos') || [];
 
@@ -907,11 +980,20 @@ const AgendaPage = {
           bloqueios: Array.isArray(r.data.bloqueios) ? r.data.bloqueios : (Store.get('bloqueios') || [])
         });
         this._renderGrade();
+
+        this._debugAgendaLog('sync_sucesso', {
+          reqId: req.reqId,
+          semanaKey,
+          totalServidor: servidor.length,
+          totalUI: agsMerged.length
+        });
       }
-    } catch (_) {
+    } catch (e) {
+      this._debugAgendaLog('sync_erro', { erro: e?.message || 'erro_desconhecido' });
       // sincronização silenciosa (sem toast)
     }
   },
+
 
 
   async _carregarPacotesClienteNoModal(clienteId) {
