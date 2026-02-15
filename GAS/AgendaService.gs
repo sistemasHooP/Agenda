@@ -178,6 +178,19 @@ function criarAgendamento(tokenPayload, dados) {
   inserirRegistro(SHEETS.AGENDAMENTOS, registro);
   invalidarCacheAgenda(semanaKey, dados.profissional_id);
 
+  // Se vinculado a pacote, dar baixa imediata
+  if (dados.pacote_vendido_id && (dados.pacote_servico_id || dados.servico_id)) {
+    try {
+      darBaixaPorAgendamento(tokenPayload, {
+        agendamento_id: id,
+        pacote_vendido_id: dados.pacote_vendido_id,
+        servico_id: dados.pacote_servico_id || dados.servico_id
+      });
+    } catch (e) {
+      Logger.log('Erro na baixa imediata do pacote: ' + e.message);
+    }
+  }
+
   registrarLog('criar_agendamento', tokenPayload.uid, 'Agendamento: ' + id);
 
   return { ok: true, data: { id: id }, msg: 'Agendamento criado.' };

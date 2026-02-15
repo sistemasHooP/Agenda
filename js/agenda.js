@@ -4,11 +4,13 @@
  */
 
 const AgendaPage = {
+  PENDENCIAS_KEY: 'ma2_agenda_pendencias',
   async render(container) {
     const semanaKey = Store.get('semanaKey') || UI.getSemanaKey();
     Store.set('semanaKey', semanaKey);
 
     container.innerHTML = this._layoutHTML();
+    await this._processarPendenciasSilencioso();
     await this._carregarDados();
     this._renderGrade();
     this._bindEvents();
@@ -55,6 +57,47 @@ const AgendaPage = {
         </div>
       </div>
     `;
+  },
+
+
+  _getPendencias() {
+    try {
+      const raw = localStorage.getItem(this.PENDENCIAS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (_) {
+      return [];
+    }
+  },
+
+  _setPendencias(arr) {
+    try {
+      localStorage.setItem(this.PENDENCIAS_KEY, JSON.stringify(arr || []));
+    } catch (_) {}
+  },
+
+  _addPendencia(item) {
+    const pend = this._getPendencias();
+    pend.push(item);
+    this._setPendencias(pend);
+  },
+
+  _removePendencia(id) {
+    const pend = this._getPendencias().filter(p => p.id !== id);
+    this._setPendencias(pend);
+  },
+
+  async _processarPendenciasSilencioso() {
+    const pend = this._getPendencias();
+    if (!pend.length) return;
+
+    for (const p of pend) {
+      if (p.tipo !== 'criarAgendamento') continue;
+      const r = await Api.call('criarAgendamento', p.dados, { retries: 1, timeout: 15000 });
+      if (r.ok) {
+        this._removePendencia(p.id);
+      }
+    }
   },
 
   async _carregarDados() {
@@ -114,8 +157,13 @@ const AgendaPage = {
             const bloqsServidor = Array.isArray(r.data?.bloqueios) ? r.data.bloqueios : [];
             const agsAtuais = Store.get('agendamentos') || [];
 
-            const manterAtuais = agsServidor.length === 0 && agsAtuais.length > 0 && String(Store.get('semanaKey')) === String(dados.semana_key);
-            const agsFinal = manterAtuais ? agsAtuais : this._mergeAgendamentosComPendentes(agsServidor, datas);
+            const mesmaSemana = String(Store.get('semanaKey')) === String(dados.semana_key);
+            const manterAtuais = agsServidor.length === 0 && agsAtuais.length > 0 && mesmaSemana;
+            const teveMutacaoRecente = (Date.now() - (this._ultimaMutacaoLocalTs || 0)) < 20000;
+            const suspeitaRespostaParcial = mesmaSemana && teveMutacaoRecente && agsServidor.length > 0 && agsServidor.length < agsAtuais.length;
+            const agsFinal = (manterAtuais || suspeitaRespostaParcial)
+              ? this._mergeAgendamentosComPendentes([...agsServidor, ...agsAtuais], datas)
+              : this._mergeAgendamentosComPendentes(agsServidor, datas);
 
             Store.setMultiple({
               datas,
@@ -216,7 +264,7 @@ const AgendaPage = {
 
       html += `<tr class="${isHourStart ? 'border-t border-gray-700' : ''}">`;
       html += `<td class="sticky left-0 bg-gray-800 z-10 px-2 py-1 text-right">
-        ${isHourStart ? `<span class="text-xs text-gray-500 font-mono">${slot}</span>` : ''}
+        <span class="text-xs ${isHourStart ? 'text-gray-400' : 'text-gray-600'} font-mono">${slot}</span>
       </td>`;
 
       for (let d = 0; d < datas.length; d++) {
@@ -266,7 +314,7 @@ const AgendaPage = {
           const cor = serv.cor || '#3B82F6';
           const isCancelado = agend.status === APP_CONFIG.STATUS.CANCELADO;
           cellClass = `px-1 py-1 border-l border-gray-700/50 ${isCancelado ? 'opacity-70' : ''}`;
-          cellContent = `<div class="h-full min-h-[28px] rounded-md" style="background:${cor}22;"></div>`;
+          cellContent = `<div class="h-full min-h-[34px]" style="background:${cor}22;"></div>`;
         }
 
         html += `<td class="${cellClass}" data-date="${cellDate}" data-time="${slot}" onclick="AgendaPage.clickSlot('${cellDate}','${slot}')">
@@ -312,7 +360,7 @@ const AgendaPage = {
 
       html += `<div class="flex items-stretch hover:bg-gray-700/20 transition-colors cursor-pointer" onclick="AgendaPage.clickSlot('${diaAtual}','${slot}')">
         <div class="w-16 flex-shrink-0 py-3 px-3 text-right">
-          ${isHourStart ? `<span class="text-xs text-gray-500 font-mono">${slot}</span>` : ''}
+          <span class="text-xs ${isHourStart ? 'text-gray-400' : 'text-gray-600'} font-mono">${slot}</span>
         </div>
         <div class="flex-1 py-2 px-3 min-h-[44px]">`;
 
@@ -358,25 +406,24 @@ const AgendaPage = {
   },
 
   _agendamentosIniciandoNoSlot(agendamentos, dateStr, timeSlot) {
-    const slotTime = new Date(dateStr + 'T' + timeSlot + ':00').getTime();
+    const slotMin = this._slotToMinutes(timeSlot);
     return agendamentos.filter((a) => {
-      const inicio = new Date(a.inicio_iso).getTime();
-      return inicio === slotTime;
+      const ini = this._parseIsoLocalParts(a.inicio_iso);
+      return ini && ini.dateKey === String(dateStr) && ini.minutes === slotMin;
     });
   },
 
   _findAgendamento(agendamentos, dateStr, timeSlot) {
-    const slotTime = new Date(dateStr + 'T' + timeSlot + ':00').getTime();
+    const slotMin = this._slotToMinutes(timeSlot);
 
     for (const a of agendamentos) {
-      const inicio = new Date(a.inicio_iso).getTime();
-      const fim = new Date(a.fim_iso).getTime();
-      const slotEnd = slotTime + APP_CONFIG.INTERVALO_MIN * 60000;
+      const ini = this._parseIsoLocalParts(a.inicio_iso);
+      const fim = this._parseIsoLocalParts(a.fim_iso);
+      if (!ini || !fim) continue;
+      if (ini.dateKey !== String(dateStr)) continue;
 
-      if (slotTime >= inicio && slotTime < fim) {
-        // Marcar se é o slot de início
-        a._isStart = (Math.abs(slotTime - inicio) < APP_CONFIG.INTERVALO_MIN * 60000);
-        // Adicionar nome do cliente se não tiver
+      if (slotMin >= ini.minutes && slotMin < fim.minutes) {
+        a._isStart = slotMin === ini.minutes;
         if (!a._clienteNome) {
           const clientes = Store.get('clientes') || [];
           const cliente = clientes.find(c => c.id === a.cliente_id);
@@ -442,13 +489,15 @@ const AgendaPage = {
 
   clickSlot(date, time) {
     const agendamentos = Store.get('agendamentos') || [];
-    const slotTime = new Date(date + 'T' + time + ':00').getTime();
+    const slotMin = this._slotToMinutes(time);
     const encontrados = [];
 
     for (const a of agendamentos) {
-      const inicio = new Date(a.inicio_iso).getTime();
-      const fim = new Date(a.fim_iso).getTime();
-      if (slotTime >= inicio && slotTime < fim) encontrados.push(a);
+      const ini = this._parseIsoLocalParts(a.inicio_iso);
+      const fim = this._parseIsoLocalParts(a.fim_iso);
+      if (!ini || !fim) continue;
+      if (ini.dateKey !== String(date)) continue;
+      if (slotMin >= ini.minutes && slotMin < fim.minutes) encontrados.push(a);
     }
 
     if (encontrados.length === 1) {
@@ -635,28 +684,51 @@ const AgendaPage = {
     return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
   },
 
+  _parseIsoLocalParts(isoValue) {
+    const str = String(isoValue || '');
+    const m = str.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}):(\d{2})/);
+    if (m) {
+      return { dateKey: m[1], minutes: (parseInt(m[2], 10) * 60) + parseInt(m[3], 10) };
+    }
+
+    const d = new Date(str);
+    if (Number.isNaN(d.getTime())) return null;
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { dateKey, minutes: (d.getHours() * 60) + d.getMinutes() };
+  },
+
+  _slotToMinutes(timeSlot) {
+    const [h, m] = String(timeSlot || '00:00').split(':');
+    return ((parseInt(h, 10) || 0) * 60) + (parseInt(m, 10) || 0);
+  },
+
   _mergeAgendamentosComPendentes(agendamentosServidor, datasServidor) {
     const serverList = Array.isArray(agendamentosServidor) ? agendamentosServidor : [];
-    const serverIds = new Set(serverList.map(a => String(a.id)));
     const datasSet = new Set((datasServidor || []).map(String));
     const now = Date.now();
 
-    const locais = (Store.get('agendamentos') || []).filter((a) => {
-      if (!a || !a._optimistic) return false;
-      if (serverIds.has(String(a.id))) return false;
+    const localValidos = (Store.get('agendamentos') || []).filter((a) => {
+      if (!a) return false;
+      const dia = String(a.dia_key || this._parseIsoLocalParts(a.inicio_iso)?.dateKey || '').substring(0, 10);
+      if (datasSet.size > 0 && !datasSet.has(dia)) return false;
 
+      if (!a._optimistic) return true;
       const created = parseInt(a._createdLocalTs, 10) || now;
-      const aindaRecente = (now - created) < 180000; // 3 min
-      if (!aindaRecente) return false;
-
-      const dia = String(a.dia_key || '').substring(0, 10);
-      return datasSet.size === 0 || datasSet.has(dia);
+      return (now - created) < 300000;
     });
 
-    return [...serverList, ...locais];
+    const merged = new Map();
+    localValidos.forEach((a) => merged.set(String(a.id), a));
+    serverList.forEach((a) => {
+      const prev = merged.get(String(a.id)) || {};
+      merged.set(String(a.id), { ...prev, ...a, _optimistic: false });
+    });
+
+    return Array.from(merged.values());
   },
 
   _atualizarAgendamentoLocal(id, patch) {
+    this._ultimaMutacaoLocalTs = Date.now();
     const lista = [...(Store.get('agendamentos') || [])];
     const idx = lista.findIndex(a => String(a.id) === String(id));
     if (idx < 0) return null;
@@ -668,6 +740,7 @@ const AgendaPage = {
   },
 
   _inserirAgendamentoLocal(ag) {
+    this._ultimaMutacaoLocalTs = Date.now();
     const lista = [...(Store.get('agendamentos') || [])];
     lista.push(ag);
     Store.set('agendamentos', lista);
@@ -675,6 +748,7 @@ const AgendaPage = {
   },
 
   _removerAgendamentoLocal(id) {
+    this._ultimaMutacaoLocalTs = Date.now();
     const lista = [...(Store.get('agendamentos') || [])];
     const idx = lista.findIndex(a => String(a.id) === String(id));
     if (idx < 0) return null;
@@ -694,11 +768,22 @@ const AgendaPage = {
 
       const r = await Api.call('listarAgendaSemana', dados, { retries: 1, timeout: 15000 });
       if (r.ok && r.data) {
-        const agsMerged = this._mergeAgendamentosComPendentes(r.data.agendamentos, r.data.datas);
+        const datas = Array.isArray(r.data.datas) ? r.data.datas : (Store.get('datas') || []);
+        const servidor = Array.isArray(r.data.agendamentos) ? r.data.agendamentos : [];
+        const atuais = Store.get('agendamentos') || [];
+
+        const teveMutacaoRecente = (Date.now() - (this._ultimaMutacaoLocalTs || 0)) < 20000;
+        const manterAtuais = servidor.length === 0 && atuais.length > 0;
+        const suspeitaRespostaParcial = teveMutacaoRecente && servidor.length > 0 && servidor.length < atuais.length;
+
+        const agsMerged = (manterAtuais || suspeitaRespostaParcial)
+          ? this._mergeAgendamentosComPendentes([...servidor, ...atuais], datas)
+          : this._mergeAgendamentosComPendentes(servidor, datas);
+
         Store.setMultiple({
-          datas: r.data.datas,
+          datas,
           agendamentos: agsMerged,
-          bloqueios: r.data.bloqueios
+          bloqueios: Array.isArray(r.data.bloqueios) ? r.data.bloqueios : (Store.get('bloqueios') || [])
         });
         this._renderGrade();
       }
@@ -848,12 +933,16 @@ const AgendaPage = {
     const cliente = (Store.get('clientes') || []).find(c => c.id === dados.cliente_id);
     const tempId = 'tmp_' + Date.now();
 
+    const pendId = 'pend_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    this._addPendencia({ id: pendId, tipo: 'criarAgendamento', dados });
+
     this._inserirAgendamentoLocal({
       id: tempId,
       ...dados,
       _clienteNome: cliente?.nome || '',
       _optimistic: true,
       _createdLocalTs: Date.now(),
+      _pendenciaId: pendId,
       fim_iso: this._formatLocalIso(fim),
       status: APP_CONFIG.STATUS.MARCADO,
       dia_key: dados.inicio_iso.substring(0, 10)
@@ -863,12 +952,12 @@ const AgendaPage = {
 
     const r = await Api.call('criarAgendamento', dados);
     if (r.ok) {
+      this._removePendencia(pendId);
       this._atualizarAgendamentoLocal(tempId, { id: r.data.id });
       UI.success('Agendamento criado!');
       this._sincronizarAgendaSilenciosa();
     } else {
-      this._removerAgendamentoLocal(tempId);
-      UI.error(r.msg || 'Erro ao criar agendamento.');
+      UI.warning('Agendamento salvo localmente e será sincronizado automaticamente.');
     }
   },
 
