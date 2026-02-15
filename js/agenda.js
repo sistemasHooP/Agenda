@@ -109,10 +109,18 @@ const AgendaPage = {
       promises.push(
         Api.call('listarAgendaSemana', dados).then(r => {
           if (r.ok) {
+            const datas = Array.isArray(r.data?.datas) ? r.data.datas : (Store.get('datas') || []);
+            const agsServidor = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
+            const bloqsServidor = Array.isArray(r.data?.bloqueios) ? r.data.bloqueios : [];
+            const agsAtuais = Store.get('agendamentos') || [];
+
+            const manterAtuais = agsServidor.length === 0 && agsAtuais.length > 0 && String(Store.get('semanaKey')) === String(dados.semana_key);
+            const agsFinal = manterAtuais ? agsAtuais : this._mergeAgendamentosComPendentes(agsServidor, datas);
+
             Store.setMultiple({
-              datas: r.data.datas,
-              agendamentos: r.data.agendamentos,
-              bloqueios: r.data.bloqueios
+              datas,
+              agendamentos: agsFinal,
+              bloqueios: bloqsServidor
             });
           }
         })
@@ -243,8 +251,9 @@ const AgendaPage = {
               <div class="font-semibold text-white truncate ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(clienteNome)}</div>
               <div class="flex items-center gap-1 mt-0.5">
                 <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
-                <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)}</span>
+                <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)} - ${UI.formatarHora(item.fim_iso)}</span>
               </div>
+              ${item.tags ? `<div class="text-[10px] text-blue-300 truncate">${UI.escapeHtml(item.tags)}</div>` : ''}
               ${Auth.isAdmin() ? `<div class="text-gray-500 text-[10px] truncate">${UI.escapeHtml(prof.nome || '')}</div>` : ''}
             </div>`;
           }).join('');
@@ -253,8 +262,11 @@ const AgendaPage = {
           cellContent = `<div class="p-1">${cards}${extra}</div>`;
           cellClass += ' p-0';
         } else if (agend && !agend._isStart) {
-          cellClass = `px-1 py-1 border-l border-gray-700/50`;
-          cellContent = '';
+          const serv = servicosMap[agend.servico_id] || {};
+          const cor = serv.cor || '#3B82F6';
+          const isCancelado = agend.status === APP_CONFIG.STATUS.CANCELADO;
+          cellClass = `px-1 py-1 border-l border-gray-700/50 ${isCancelado ? 'opacity-70' : ''}`;
+          cellContent = `<div class="h-full min-h-[28px] rounded-md" style="background:${cor}22;"></div>`;
         }
 
         html += `<td class="${cellClass}" data-date="${cellDate}" data-time="${slot}" onclick="AgendaPage.clickSlot('${cellDate}','${slot}')">
@@ -732,7 +744,7 @@ const AgendaPage = {
 
     area.classList.remove('hidden');
     list.innerHTML = opcoes.map((o) => `
-      <button type="button" class="w-full text-left bg-gray-900 border border-gray-700 rounded-xl p-2 hover:border-blue-500"
+      <button type="button" data-pacote="${o.pacote_vendido_id}" data-servico="${o.servico_id}" class="ag-pacote-opcao w-full text-left bg-gray-900 border border-gray-700 rounded-xl p-2 hover:border-blue-500 transition-colors"
         onclick="AgendaPage.selecionarServicoPacote('${o.pacote_vendido_id}','${o.servico_id}')">
         <div class="text-sm text-white">${UI.escapeHtml(o.pacote_nome)} · ${UI.escapeHtml(o.servico_nome)}</div>
         <div class="text-xs text-emerald-400">Restante: ${o.restante}</div>
@@ -748,90 +760,14 @@ const AgendaPage = {
 
     const servSel = document.getElementById('ag-servico');
     if (servSel) servSel.value = servicoId;
-    UI.info('Serviço do pacote selecionado para este agendamento.');
-  },
 
-
-  _formatLocalIso(dateObj) {
-    const y = dateObj.getFullYear();
-    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const d = String(dateObj.getDate()).padStart(2, '0');
-    const hh = String(dateObj.getHours()).padStart(2, '0');
-    const mm = String(dateObj.getMinutes()).padStart(2, '0');
-    const ss = String(dateObj.getSeconds()).padStart(2, '0');
-    return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
-  },
-
-  _mergeAgendamentosComPendentes(agendamentosServidor, datasServidor) {
-    const serverList = Array.isArray(agendamentosServidor) ? agendamentosServidor : [];
-    const serverIds = new Set(serverList.map(a => String(a.id)));
-    const datasSet = new Set((datasServidor || []).map(String));
-    const now = Date.now();
-
-    const locais = (Store.get('agendamentos') || []).filter((a) => {
-      if (!a || !a._optimistic) return false;
-      if (serverIds.has(String(a.id))) return false;
-
-      const created = parseInt(a._createdLocalTs, 10) || now;
-      const aindaRecente = (now - created) < 180000; // 3 min
-      if (!aindaRecente) return false;
-
-      const dia = String(a.dia_key || '').substring(0, 10);
-      return datasSet.size === 0 || datasSet.has(dia);
+    document.querySelectorAll('.ag-pacote-opcao').forEach((el) => {
+      const ativo = el.getAttribute('data-pacote') === pacoteVendidoId && el.getAttribute('data-servico') === servicoId;
+      el.classList.toggle('border-blue-500', ativo);
+      el.classList.toggle('bg-blue-500/10', ativo);
     });
 
-    return [...serverList, ...locais];
-  },
-
-  _atualizarAgendamentoLocal(id, patch) {
-    const lista = [...(Store.get('agendamentos') || [])];
-    const idx = lista.findIndex(a => String(a.id) === String(id));
-    if (idx < 0) return null;
-    const anterior = { ...lista[idx] };
-    lista[idx] = { ...lista[idx], ...patch, _optimistic: true, _createdLocalTs: Date.now() };
-    Store.set('agendamentos', lista);
-    this._renderGrade();
-    return anterior;
-  },
-
-  _inserirAgendamentoLocal(ag) {
-    const lista = [...(Store.get('agendamentos') || [])];
-    lista.push(ag);
-    Store.set('agendamentos', lista);
-    this._renderGrade();
-  },
-
-  _removerAgendamentoLocal(id) {
-    const lista = [...(Store.get('agendamentos') || [])];
-    const idx = lista.findIndex(a => String(a.id) === String(id));
-    if (idx < 0) return null;
-    const removido = lista[idx];
-    lista.splice(idx, 1);
-    Store.set('agendamentos', lista);
-    this._renderGrade();
-    return removido;
-  },
-
-  async _sincronizarAgendaSilenciosa() {
-    try {
-      const semanaKey = Store.get('semanaKey');
-      const profFiltro = Store.get('profissionalFiltro');
-      const dados = { semana_key: semanaKey };
-      if (profFiltro && profFiltro !== 'all') dados.profissional_id = profFiltro;
-
-      const r = await Api.call('listarAgendaSemana', dados, { retries: 1, timeout: 15000 });
-      if (r.ok && r.data) {
-        const agsMerged = this._mergeAgendamentosComPendentes(r.data.agendamentos, r.data.datas);
-        Store.setMultiple({
-          datas: r.data.datas,
-          agendamentos: agsMerged,
-          bloqueios: r.data.bloqueios
-        });
-        this._renderGrade();
-      }
-    } catch (_) {
-      // sincronização silenciosa (sem toast)
-    }
+    UI.info('Serviço do pacote selecionado para este agendamento.');
   },
 
   async novoClienteRapido() {
