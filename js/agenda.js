@@ -255,6 +255,14 @@ const AgendaPage = {
     }
   },
 
+  _calcDuracaoSlots(item) {
+    const ini = this._parseIsoLocalParts(item?.inicio_iso);
+    const fim = this._parseIsoLocalParts(item?.fim_iso);
+    if (!ini || !fim) return 1;
+    const diff = Math.max(APP_CONFIG.INTERVALO_MIN, fim.minutes - ini.minutes);
+    return Math.max(1, Math.round(diff / APP_CONFIG.INTERVALO_MIN));
+  },
+
   _renderSemana(gradeEl, periodoEl) {
     const datas = Store.get('datas') || [];
     const agendamentos = Store.get('agendamentos') || [];
@@ -311,7 +319,7 @@ const AgendaPage = {
         const cellTime = cellDate + 'T' + slot + ':00';
 
         const iniciandoAgora = this._agendamentosIniciandoNoSlot(agendamentos, cellDate, slot);
-        const agend = this._findAgendamento(agendamentos, cellDate, slot);
+        const agend = this._findAgendamentohttps://github.com/sistemasHooP/Agenda/pull/15/conflict?name=js%252Fagenda.js&ancestor_oid=62a50c6abce1747cdc87fa6c225991514838929f&base_oid=36295745c87fc33b43146fae34b2826bd0a409e8&head_oid=27364d151c1e3e6d460c3604b6a21a2fa3ea0566(agendamentos, cellDate, slot);
         const bloq = this._findBloqueio(bloqueios, cellDate, slot);
 
         let cellContent = '';
@@ -324,30 +332,58 @@ const AgendaPage = {
             Bloqueado
           </div>`;
         } else if (iniciandoAgora.length > 0) {
-          const cards = iniciandoAgora.slice(0, 2).map((item) => {
+          if (iniciandoAgora.length === 1) {
+            const item = iniciandoAgora[0];
+            item._renderAsOverlay = true;
             const serv = servicosMap[item.servico_id] || {};
             const prof = profsMap[item.profissional_id] || {};
             const cor = serv.cor || '#3B82F6';
             const statusCfg = APP_CONFIG.STATUS_CORES[item.status] || APP_CONFIG.STATUS_CORES.marcado;
             const clienteNome = clientesMap[item.cliente_id] || item._clienteNome || 'Cliente';
             const isCancelado = item.status === APP_CONFIG.STATUS.CANCELADO;
-            return `<div class="agenda-card rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.02] mb-1 ${isCancelado ? 'opacity-70' : ''}"
-              style="border-left-color:${cor}; background: ${cor}15;"
+            const slotsSpan = this._calcDuracaoSlots(item);
+            const blockHeight = Math.max(40, (slotsSpan * 44) - 4);
+
+            cellClass += ' p-0 relative overflow-visible';
+            cellContent = `<div class="agenda-block-overlay absolute left-1 right-1 top-1 rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.01] ${isCancelado ? 'opacity-70' : ''}"
+              style="height:${blockHeight}px; border-left-color:${cor}; background:${cor}18; z-index:20;"
               onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${item.id}')">
               <div class="font-semibold text-white truncate ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(clienteNome)}</div>
               <div class="flex items-center gap-1 mt-0.5">
                 <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
                 <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)} - ${UI.formatarHora(item.fim_iso)}</span>
               </div>
-              <div class="text-[10px] ${statusCfg.text} uppercase truncate">${UI.escapeHtml(item.status || '')}</div>${item.tags ? `<div class=\"text-[10px] text-blue-300 truncate\">${UI.escapeHtml(item.tags)}</div>` : ''}
+              <div class="text-[10px] ${statusCfg.text} uppercase truncate">${UI.escapeHtml(item.status || '')}</div>
+              ${item.tags ? `<div class="text-[10px] text-blue-300 truncate">${UI.escapeHtml(item.tags)}</div>` : ''}
               ${Auth.isAdmin() ? `<div class="text-gray-500 text-[10px] truncate">${UI.escapeHtml(prof.nome || '')}</div>` : ''}
             </div>`;
-          }).join('');
+          } else {
+            const cards = iniciandoAgora.slice(0, 2).map((item) => {
+              const serv = servicosMap[item.servico_id] || {};
+              const prof = profsMap[item.profissional_id] || {};
+              const cor = serv.cor || '#3B82F6';
+              const statusCfg = APP_CONFIG.STATUS_CORES[item.status] || APP_CONFIG.STATUS_CORES.marcado;
+              const clienteNome = clientesMap[item.cliente_id] || item._clienteNome || 'Cliente';
+              const isCancelado = item.status === APP_CONFIG.STATUS.CANCELADO;
+              return `<div class="agenda-card rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.02] mb-1 ${isCancelado ? 'opacity-70' : ''}"
+                style="border-left-color:${cor}; background: ${cor}15;"
+                onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${item.id}')">
+                <div class="font-semibold text-white truncate ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(clienteNome)}</div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
+                  <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)} - ${UI.formatarHora(item.fim_iso)}</span>
+                </div>
+                <div class="text-[10px] ${statusCfg.text} uppercase truncate">${UI.escapeHtml(item.status || '')}</div>
+                ${item.tags ? `<div class="text-[10px] text-blue-300 truncate">${UI.escapeHtml(item.tags)}</div>` : ''}
+                ${Auth.isAdmin() ? `<div class="text-gray-500 text-[10px] truncate">${UI.escapeHtml(prof.nome || '')}</div>` : ''}
+              </div>`;
+            }).join('');
 
-          const extra = iniciandoAgora.length > 2 ? `<div class="text-[10px] text-blue-400 px-1">+${iniciandoAgora.length - 2} agend.</div>` : '';
-          cellContent = `<div class="p-1">${cards}${extra}</div>`;
-          cellClass += ' p-0';
-        } else if (agend && !agend._isStart) {
+            const extra = iniciandoAgora.length > 2 ? `<div class="text-[10px] text-blue-400 px-1">+${iniciandoAgora.length - 2} agend.</div>` : '';
+            cellContent = `<div class="p-1">${cards}${extra}</div>`;
+            cellClass += ' p-0';
+          }
+        } else if (agend && !agend._isStart && !agend._renderAsOverlay) {
           const serv = servicosMap[agend.servico_id] || {};
           const cor = serv.cor || '#3B82F6';
           const isCancelado = agend.status === APP_CONFIG.STATUS.CANCELADO;

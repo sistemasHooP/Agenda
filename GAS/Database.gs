@@ -153,12 +153,24 @@ function buscarAgendaSemana(semanaKey, profissionalId) {
   var headers = data[0];
   var colSemana = headers.indexOf('semana_key');
   var colProf = headers.indexOf('profissional_id');
-  var colStatus = headers.indexOf('status');
+  var colDia = headers.indexOf('dia_key');
+  var colInicio = headers.indexOf('inicio_iso');
+
+  var datasSemana = getDatasDaSemana(semanaKey);
+  var datasMap = {};
+  for (var d = 0; d < datasSemana.length; d++) datasMap[String(datasSemana[d])] = true;
 
   var result = [];
   for (var i = 1; i < data.length; i++) {
-    if (String(data[i][colSemana]) !== String(semanaKey)) continue;
     if (profissionalId && String(data[i][colProf]) !== String(profissionalId)) continue;
+
+    var rowSemana = String(data[i][colSemana] || '');
+    var rowDia = String(colDia >= 0 ? (data[i][colDia] || '') : '').substring(0, 10);
+    var rowInicio = String(colInicio >= 0 ? (data[i][colInicio] || '') : '');
+    var rowInicioDia = rowInicio ? rowInicio.substring(0, 10) : '';
+
+    var pertenceSemana = (rowSemana === String(semanaKey)) || !!datasMap[rowDia] || !!datasMap[rowInicioDia];
+    if (!pertenceSemana) continue;
 
     var obj = {};
     for (var j = 0; j < headers.length; j++) {
