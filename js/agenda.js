@@ -319,7 +319,7 @@ const AgendaPage = {
         const cellTime = cellDate + 'T' + slot + ':00';
 
         const iniciandoAgora = this._agendamentosIniciandoNoSlot(agendamentos, cellDate, slot);
-        const agend = this._findAgendamento(agendamentos, cellDate, slot);
+        const agend = this._findAgendamentohttps://github.com/sistemasHooP/Agenda/pull/15/conflict?name=js%252Fagenda.js&ancestor_oid=62a50c6abce1747cdc87fa6c225991514838929f&base_oid=36295745c87fc33b43146fae34b2826bd0a409e8&head_oid=27364d151c1e3e6d460c3604b6a21a2fa3ea0566(agendamentos, cellDate, slot);
         const bloq = this._findBloqueio(bloqueios, cellDate, slot);
 
         let cellContent = '';
