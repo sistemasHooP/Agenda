@@ -4,11 +4,14 @@
  */
 
 const AgendaPage = {
+  PENDENCIAS_KEY: 'ma2_agenda_pendencias',
   async render(container) {
     const semanaKey = Store.get('semanaKey') || UI.getSemanaKey();
     Store.set('semanaKey', semanaKey);
 
     container.innerHTML = this._layoutHTML();
+    this._fallbackSemanaTentado = false;
+    await this._processarPendenciasSilencioso();
     await this._carregarDados();
     this._renderGrade();
     this._bindEvents();
@@ -57,6 +60,54 @@ const AgendaPage = {
     `;
   },
 
+
+  _getPendencias() {
+    try {
+      const raw = localStorage.getItem(this.PENDENCIAS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (_) {
+      return [];
+    }
+  },
+
+  _setPendencias(arr) {
+    try {
+      localStorage.setItem(this.PENDENCIAS_KEY, JSON.stringify(arr || []));
+    } catch (_) {}
+  },
+
+  _addPendencia(item) {
+    const pend = this._getPendencias();
+    pend.push(item);
+    this._setPendencias(pend);
+  },
+
+  _removePendencia(id) {
+    const pend = this._getPendencias().filter(p => p.id !== id);
+    this._setPendencias(pend);
+  },
+
+  async _processarPendenciasSilencioso() {
+    const pend = this._getPendencias();
+    if (!pend.length) return;
+
+    for (const p of pend) {
+      if (p.tipo !== 'criarAgendamento') continue;
+      const r = await Api.call('criarAgendamento', p.dados, { retries: 1, timeout: 15000 });
+      if (r.ok) {
+        this._removePendencia(p.id);
+        continue;
+      }
+
+      const msg = String(r?.msg || '').toLowerCase();
+      const erroNegocio = msg.includes('saldo') || msg.includes('pacote') || msg.includes('conflito') || msg.includes('não encontrado');
+      if (erroNegocio) {
+        this._removePendencia(p.id);
+      }
+    }
+  },
+
   async _carregarDados() {
     Store.setLoading('agenda', true);
 
@@ -86,6 +137,18 @@ const AgendaPage = {
         );
       }
 
+      if (Store.needsRefresh('clientes')) {
+        promises.push(
+          Api.call('listarClientes').then(r => {
+            if (r.ok) {
+              const clientes = Array.isArray(r.data) ? r.data : (r.data?.itens || []);
+              Store.set('clientes', clientes);
+              Store.markRefreshed('clientes');
+            }
+          })
+        );
+      }
+
       // Carregar agenda
       const semanaKey = Store.get('semanaKey');
       const profFiltro = Store.get('profissionalFiltro');
@@ -97,16 +160,35 @@ const AgendaPage = {
       promises.push(
         Api.call('listarAgendaSemana', dados).then(r => {
           if (r.ok) {
+            const datas = Array.isArray(r.data?.datas) ? r.data.datas : (Store.get('datas') || []);
+            const agsServidor = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
+            this._ultimaCargaServidor = { semana_key: String(dados.semana_key || ''), quantidade: agsServidor.length };
+            const bloqsServidor = Array.isArray(r.data?.bloqueios) ? r.data.bloqueios : [];
+            const agsAtuais = Store.get('agendamentos') || [];
+
+            const mesmaSemana = String(Store.get('semanaKey')) === String(dados.semana_key);
+            const manterAtuais = agsServidor.length === 0 && agsAtuais.length > 0 && mesmaSemana;
+            const teveMutacaoRecente = (Date.now() - (this._ultimaMutacaoLocalTs || 0)) < 20000;
+            const suspeitaRespostaParcial = mesmaSemana && teveMutacaoRecente && agsServidor.length > 0 && agsServidor.length < agsAtuais.length;
+            const agsFinal = (manterAtuais || suspeitaRespostaParcial)
+              ? this._mergeAgendamentosComPendentes([...agsServidor, ...agsAtuais], datas)
+              : this._mergeAgendamentosComPendentes(agsServidor, datas);
+
             Store.setMultiple({
-              datas: r.data.datas,
-              agendamentos: r.data.agendamentos,
-              bloqueios: r.data.bloqueios
+              datas,
+              agendamentos: agsFinal,
+              bloqueios: bloqsServidor
             });
           }
         })
       );
 
       await Promise.all(promises);
+
+      const semDadosNoServidor = (this._ultimaCargaServidor && this._ultimaCargaServidor.quantidade === 0);
+      if (semDadosNoServidor || (Store.get('agendamentos') || []).length === 0) {
+        await this._tentarCarregarSemanaComDados();
+      }
 
       // Popular filtro de profissionais
       this._popularFiltroProfissionais();
@@ -115,6 +197,50 @@ const AgendaPage = {
       UI.error('Erro ao carregar agenda.');
     } finally {
       Store.setLoading('agenda', false);
+    }
+  },
+
+  async _tentarCarregarSemanaComDados() {
+    if (this._fallbackSemanaTentado) return;
+    this._fallbackSemanaTentado = true;
+
+    const profFiltro = Store.get('profissionalFiltro');
+    const payload = {};
+    if (profFiltro && profFiltro !== 'all') payload.profissional_id = profFiltro;
+
+    const aplicarSemanaDestino = async (semanaKey, diaKey) => {
+      const atual = String(Store.get('semanaKey') || '');
+      const destino = String(semanaKey || '');
+      if (!destino || destino === atual) return false;
+      Store.set('semanaKey', destino);
+      if (diaKey) Store.set('diaAtual', diaKey);
+      await this._carregarDados();
+      return true;
+    };
+
+    try {
+      const r = await Api.call('obterSemanaAgendaRecente', payload, { retries: 1, timeout: 15000 });
+      if (r.ok && r.data && r.data.semana_key) {
+        const ok = await aplicarSemanaDestino(r.data.semana_key, r.data.dia_key);
+        if (ok) return;
+      }
+    } catch (_) {
+      // se a action não existir no GAS deploy atual, segue fallback local
+    }
+
+    // Fallback resiliente sem depender de nova action no GAS:
+    // varre semanas anteriores até encontrar agendamentos existentes.
+    let semanaCursor = Store.get('semanaKey') || UI.getSemanaKey();
+    for (let i = 0; i < 104; i++) { // até 2 anos
+      try {
+        const r = await Api.call('listarAgendaSemana', { ...payload, semana_key: semanaCursor }, { retries: 1, timeout: 15000 });
+        const ags = Array.isArray(r.data?.agendamentos) ? r.data.agendamentos : [];
+        if (r.ok && ags.length > 0) {
+          await aplicarSemanaDestino(semanaCursor, ags[0]?.dia_key || '');
+          return;
+        }
+      } catch (_) {}
+      semanaCursor = UI.navSemana(semanaCursor, -1);
     }
   },
 
@@ -149,6 +275,14 @@ const AgendaPage = {
     }
   },
 
+  _calcDuracaoSlots(item) {
+    const ini = this._parseIsoLocalParts(item?.inicio_iso);
+    const fim = this._parseIsoLocalParts(item?.fim_iso);
+    if (!ini || !fim) return 1;
+    const diff = Math.max(APP_CONFIG.INTERVALO_MIN, fim.minutes - ini.minutes);
+    return Math.max(1, Math.round(diff / APP_CONFIG.INTERVALO_MIN));
+  },
+
   _renderSemana(gradeEl, periodoEl) {
     const datas = Store.get('datas') || [];
     const agendamentos = Store.get('agendamentos') || [];
@@ -163,6 +297,8 @@ const AgendaPage = {
     servicos.forEach(s => servicosMap[s.id] = s);
     const profsMap = {};
     profissionais.forEach(p => profsMap[p.id] = p);
+    const clientesMap = this._buildClienteMap();
+    agendamentos.forEach((a) => { if (!a._clienteNome) a._clienteNome = clientesMap[a.cliente_id] || ''; });
 
     // Período label
     if (periodoEl && datas.length >= 2) {
@@ -192,9 +328,9 @@ const AgendaPage = {
       const slot = slots[s];
       const isHourStart = slot.endsWith(':00');
 
-      html += `<tr class="${isHourStart ? 'border-t border-gray-700' : ''}">`;
-      html += `<td class="sticky left-0 bg-gray-800 z-10 px-2 py-1 text-right">
-        ${isHourStart ? `<span class="text-xs text-gray-500 font-mono">${slot}</span>` : ''}
+      html += `<tr class="${isHourStart ? 'border-t border-gray-700' : ''} agenda-slot-row">`;
+      html += `<td class="sticky left-0 bg-gray-800 z-10 px-2 py-1 text-right agenda-time-col">
+        <span class="text-xs ${isHourStart ? 'text-gray-300 font-semibold' : 'text-gray-500'} font-mono">${slot}</span>
       </td>`;
 
       for (let d = 0; d < datas.length; d++) {
@@ -202,9 +338,8 @@ const AgendaPage = {
         const cellDate = datas[d];
         const cellTime = cellDate + 'T' + slot + ':00';
 
-        // Verificar se há agendamento neste slot
+        const iniciandoAgora = this._agendamentosIniciandoNoSlot(agendamentos, cellDate, slot);
         const agend = this._findAgendamento(agendamentos, cellDate, slot);
-        // Verificar se há bloqueio neste slot
         const bloq = this._findBloqueio(bloqueios, cellDate, slot);
 
         let cellContent = '';
@@ -216,29 +351,64 @@ const AgendaPage = {
             <svg class="w-3 h-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636"/></svg>
             Bloqueado
           </div>`;
-        } else if (agend && agend._isStart) {
-          const serv = servicosMap[agend.servico_id] || {};
-          const prof = profsMap[agend.profissional_id] || {};
-          const cor = serv.cor || '#3B82F6';
-          const statusCfg = APP_CONFIG.STATUS_CORES[agend.status] || APP_CONFIG.STATUS_CORES.marcado;
+        } else if (iniciandoAgora.length > 0) {
+          if (iniciandoAgora.length === 1) {
+            const item = iniciandoAgora[0];
+            item._renderAsOverlay = true;
+            const serv = servicosMap[item.servico_id] || {};
+            const prof = profsMap[item.profissional_id] || {};
+            const cor = serv.cor || '#3B82F6';
+            const statusCfg = APP_CONFIG.STATUS_CORES[item.status] || APP_CONFIG.STATUS_CORES.marcado;
+            const clienteNome = clientesMap[item.cliente_id] || item._clienteNome || 'Cliente';
+            const isCancelado = item.status === APP_CONFIG.STATUS.CANCELADO;
+            const slotsSpan = this._calcDuracaoSlots(item);
+            const blockHeight = Math.max(40, (slotsSpan * 44) - 4);
 
-          cellContent = `<div class="agenda-card rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.02]"
-            style="border-left-color:${cor}; background: ${cor}15;"
-            data-agendamento-id="${agend.id}"
-            onclick="AgendaPage.abrirDetalhes('${agend.id}')">
-            <div class="font-semibold text-white truncate">${UI.escapeHtml(agend._clienteNome || 'Cliente')}</div>
-            <div class="text-gray-400 truncate">${UI.escapeHtml(serv.nome || '')}</div>
-            <div class="flex items-center gap-1 mt-0.5">
-              <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
-              <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(agend.inicio_iso)} - ${UI.formatarHora(agend.fim_iso)}</span>
-            </div>
-            ${Auth.isAdmin() ? `<div class="text-gray-500 text-[10px] truncate">${UI.escapeHtml(prof.nome || '')}</div>` : ''}
-          </div>`;
-          cellClass += ' p-0';
-        } else if (agend && !agend._isStart) {
-          // Continuação do agendamento
-          cellClass = `px-1 py-1 border-l border-gray-700/50`;
-          cellContent = '';
+            cellClass += ' p-0 relative overflow-visible';
+            cellContent = `<div class="agenda-block-overlay absolute left-1 right-1 top-1 rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.01] ${isCancelado ? 'opacity-70' : ''}"
+              style="height:${blockHeight}px; border-left-color:${cor}; background:${cor}18; z-index:20;"
+              onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${item.id}')">
+              <div class="font-semibold text-white truncate ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(clienteNome)}</div>
+              <div class="flex items-center gap-1 mt-0.5">
+                <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
+                <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)} - ${UI.formatarHora(item.fim_iso)}</span>
+              </div>
+              <div class="text-[10px] ${statusCfg.text} uppercase truncate">${UI.escapeHtml(item.status || '')}</div>
+              ${item.tags ? `<div class="text-[10px] text-blue-300 truncate">${UI.escapeHtml(item.tags)}</div>` : ''}
+              ${Auth.isAdmin() ? `<div class="text-gray-500 text-[10px] truncate">${UI.escapeHtml(prof.nome || '')}</div>` : ''}
+            </div>`;
+          } else {
+            const cards = iniciandoAgora.slice(0, 2).map((item) => {
+              const serv = servicosMap[item.servico_id] || {};
+              const prof = profsMap[item.profissional_id] || {};
+              const cor = serv.cor || '#3B82F6';
+              const statusCfg = APP_CONFIG.STATUS_CORES[item.status] || APP_CONFIG.STATUS_CORES.marcado;
+              const clienteNome = clientesMap[item.cliente_id] || item._clienteNome || 'Cliente';
+              const isCancelado = item.status === APP_CONFIG.STATUS.CANCELADO;
+              return `<div class="agenda-card rounded-lg px-2 py-1 text-xs cursor-pointer border-l-2 transition-transform hover:scale-[1.02] mb-1 ${isCancelado ? 'opacity-70' : ''}"
+                style="border-left-color:${cor}; background: ${cor}15;"
+                onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${item.id}')">
+                <div class="font-semibold text-white truncate ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(clienteNome)}</div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span class="w-1.5 h-1.5 rounded-full ${statusCfg.dot}"></span>
+                  <span class="${statusCfg.text} text-[10px]">${UI.formatarHora(item.inicio_iso)} - ${UI.formatarHora(item.fim_iso)}</span>
+                </div>
+                <div class="text-[10px] ${statusCfg.text} uppercase truncate">${UI.escapeHtml(item.status || '')}</div>
+                ${item.tags ? `<div class="text-[10px] text-blue-300 truncate">${UI.escapeHtml(item.tags)}</div>` : ''}
+                ${Auth.isAdmin() ? `<div class="text-gray-500 text-[10px] truncate">${UI.escapeHtml(prof.nome || '')}</div>` : ''}
+              </div>`;
+            }).join('');
+
+            const extra = iniciandoAgora.length > 2 ? `<div class="text-[10px] text-blue-400 px-1">+${iniciandoAgora.length - 2} agend.</div>` : '';
+            cellContent = `<div class="p-1">${cards}${extra}</div>`;
+            cellClass += ' p-0';
+          }
+        } else if (agend && !agend._isStart && !agend._renderAsOverlay) {
+          const serv = servicosMap[agend.servico_id] || {};
+          const cor = serv.cor || '#3B82F6';
+          const isCancelado = agend.status === APP_CONFIG.STATUS.CANCELADO;
+          cellClass = `p-0 border-l border-gray-700/50 relative overflow-visible ${isCancelado ? 'opacity-70' : ''}`;
+          cellContent = `<div class="agenda-fill absolute inset-0 min-h-[44px] ${isHourStart ? 'agenda-fill-merge-top' : ''}" style="--agenda-fill:${cor}; background:${cor}22;"></div>`;
         }
 
         html += `<td class="${cellClass}" data-date="${cellDate}" data-time="${slot}" onclick="AgendaPage.clickSlot('${cellDate}','${slot}')">
@@ -278,12 +448,13 @@ const AgendaPage = {
 
     for (const slot of slots) {
       const isHourStart = slot.endsWith(':00');
+      const iniciandoAgora = this._agendamentosIniciandoNoSlot(agendamentos, diaAtual, slot);
       const agend = this._findAgendamento(agendamentos, diaAtual, slot);
       const bloq = this._findBloqueio(bloqueios, diaAtual, slot);
 
       html += `<div class="flex items-stretch hover:bg-gray-700/20 transition-colors cursor-pointer" onclick="AgendaPage.clickSlot('${diaAtual}','${slot}')">
         <div class="w-16 flex-shrink-0 py-3 px-3 text-right">
-          ${isHourStart ? `<span class="text-xs text-gray-500 font-mono">${slot}</span>` : ''}
+          <span class="text-xs ${isHourStart ? 'text-gray-400' : 'text-gray-600'} font-mono">${slot}</span>
         </div>
         <div class="flex-1 py-2 px-3 min-h-[44px]">`;
 
@@ -292,26 +463,27 @@ const AgendaPage = {
           <span class="text-red-400 text-sm">Bloqueado</span>
           ${bloq.motivo ? `<span class="text-red-400/60 text-xs ml-2">${UI.escapeHtml(bloq.motivo)}</span>` : ''}
         </div>`;
-      } else if (agend && agend._isStart) {
-        const serv = servicosMap[agend.servico_id] || {};
-        const prof = profsMap[agend.profissional_id] || {};
-        const cor = serv.cor || '#3B82F6';
-        const statusCfg = APP_CONFIG.STATUS_CORES[agend.status] || APP_CONFIG.STATUS_CORES.marcado;
-
-        html += `<div class="rounded-xl px-4 py-3 border-l-4 cursor-pointer hover:scale-[1.01] transition-transform"
-          style="border-left-color:${cor}; background: ${cor}15;"
-          onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${agend.id}')">
-          <div class="flex items-center justify-between">
-            <span class="font-semibold text-white">${UI.escapeHtml(agend._clienteNome || 'Cliente')}</span>
-            ${UI.statusBadge(agend.status)}
-          </div>
-          <div class="text-gray-400 text-sm mt-1">${UI.escapeHtml(serv.nome || '')} ${serv.duracao_min ? `(${serv.duracao_min}min)` : ''}</div>
-          <div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
-            <span>${UI.formatarHora(agend.inicio_iso)} - ${UI.formatarHora(agend.fim_iso)}</span>
-            <span>${UI.escapeHtml(prof.nome || '')}</span>
-            ${agend.tags ? `<span class="text-blue-400">${UI.escapeHtml(agend.tags)}</span>` : ''}
-          </div>
-        </div>`;
+      } else if (iniciandoAgora.length > 0) {
+        html += iniciandoAgora.map((item) => {
+          const serv = servicosMap[item.servico_id] || {};
+          const prof = profsMap[item.profissional_id] || {};
+          const cor = serv.cor || '#3B82F6';
+          const isCancelado = item.status === APP_CONFIG.STATUS.CANCELADO;
+          return `<div class="rounded-xl px-4 py-3 border-l-4 cursor-pointer hover:scale-[1.01] transition-transform mb-2 ${isCancelado ? 'opacity-70' : ''}"
+            style="border-left-color:${cor}; background: ${cor}15;"
+            onclick="event.stopPropagation(); AgendaPage.abrirDetalhes('${item.id}')">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-white ${item.status === APP_CONFIG.STATUS.CANCELADO ? 'line-through' : ''}">${UI.escapeHtml(item._clienteNome || 'Cliente')}</span>
+              ${UI.statusBadge(item.status)}
+            </div>
+            <div class="text-gray-400 text-sm mt-1">${UI.escapeHtml(serv.nome || '')} ${serv.duracao_min ? `(${serv.duracao_min}min)` : ''}</div>
+            <div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
+              <span>${UI.formatarHora(item.inicio_iso)} - ${UI.formatarHora(item.fim_iso)}</span>
+              <span>${UI.escapeHtml(prof.nome || '')}</span>
+              ${item.tags ? `<span class="text-blue-400">${UI.escapeHtml(item.tags)}</span>` : ''}
+            </div>
+          </div>`;
+        }).join('');
       }
 
       html += '</div></div>';
@@ -321,19 +493,31 @@ const AgendaPage = {
     gradeEl.innerHTML = html;
   },
 
+  _buildClienteMap() {
+    const map = {};
+    (Store.get('clientes') || []).forEach(c => { map[c.id] = c.nome || ''; });
+    return map;
+  },
+
+  _agendamentosIniciandoNoSlot(agendamentos, dateStr, timeSlot) {
+    const slotMin = this._slotToMinutes(timeSlot);
+    return agendamentos.filter((a) => {
+      const ini = this._parseIsoLocalParts(a.inicio_iso);
+      return ini && ini.dateKey === String(dateStr) && ini.minutes === slotMin;
+    });
+  },
+
   _findAgendamento(agendamentos, dateStr, timeSlot) {
-    const slotTime = new Date(dateStr + 'T' + timeSlot + ':00').getTime();
+    const slotMin = this._slotToMinutes(timeSlot);
 
     for (const a of agendamentos) {
-      if (String(a.status) === 'cancelado') continue;
-      const inicio = new Date(a.inicio_iso).getTime();
-      const fim = new Date(a.fim_iso).getTime();
-      const slotEnd = slotTime + APP_CONFIG.INTERVALO_MIN * 60000;
+      const ini = this._parseIsoLocalParts(a.inicio_iso);
+      const fim = this._parseIsoLocalParts(a.fim_iso);
+      if (!ini || !fim) continue;
+      if (ini.dateKey !== String(dateStr)) continue;
 
-      if (slotTime >= inicio && slotTime < fim) {
-        // Marcar se é o slot de início
-        a._isStart = (Math.abs(slotTime - inicio) < APP_CONFIG.INTERVALO_MIN * 60000);
-        // Adicionar nome do cliente se não tiver
+      if (slotMin >= ini.minutes && slotMin < fim.minutes) {
+        a._isStart = slotMin === ini.minutes;
         if (!a._clienteNome) {
           const clientes = Store.get('clientes') || [];
           const cliente = clientes.find(c => c.id === a.cliente_id);
@@ -398,18 +582,31 @@ const AgendaPage = {
   // ─── CLICAR EM SLOT VAZIO ──────────────────────────────────────────
 
   clickSlot(date, time) {
-    // Verificar se há agendamento
     const agendamentos = Store.get('agendamentos') || [];
-    const slotTime = new Date(date + 'T' + time + ':00').getTime();
+    const slotMin = this._slotToMinutes(time);
+    const encontrados = [];
 
     for (const a of agendamentos) {
-      if (String(a.status) === 'cancelado') continue;
-      const inicio = new Date(a.inicio_iso).getTime();
-      const fim = new Date(a.fim_iso).getTime();
-      if (slotTime >= inicio && slotTime < fim) {
-        this.abrirDetalhes(a.id);
-        return;
-      }
+      const ini = this._parseIsoLocalParts(a.inicio_iso);
+      const fim = this._parseIsoLocalParts(a.fim_iso);
+      if (!ini || !fim) continue;
+      if (ini.dateKey !== String(date)) continue;
+      if (slotMin >= ini.minutes && slotMin < fim.minutes) encontrados.push(a);
+    }
+
+    if (encontrados.length === 1) {
+      this.abrirDetalhes(encontrados[0].id);
+      return;
+    }
+
+    if (encontrados.length > 1) {
+      const content = `<div class="space-y-2">${encontrados.map((a) => `
+        <button class="w-full text-left bg-gray-900 border border-gray-700 rounded-xl p-3 hover:border-blue-500" onclick="UI.closeModal(); AgendaPage.abrirDetalhes('${a.id}')">
+          <div class="text-white font-medium">${UI.escapeHtml(a._clienteNome || 'Cliente')}</div>
+          <div class="text-xs text-gray-400">${UI.formatarHora(a.inicio_iso)} - ${UI.formatarHora(a.fim_iso)}</div>
+        </button>`).join('')}</div>`;
+      UI.modal({ title: 'Agendamentos neste horário', content, size: 'sm' });
+      return;
     }
 
     this.abrirModalNovoAgendamento(date, time);
@@ -481,6 +678,13 @@ const AgendaPage = {
           </div>
         </div>
 
+        <div id="ag-pacotes-area" class="hidden">
+          <label class="block text-sm text-gray-400 mb-1">Pacotes ativos do cliente</label>
+          <div id="ag-pacotes-list" class="space-y-2"></div>
+          <input type="hidden" id="ag-pacote-vendido-id">
+          <input type="hidden" id="ag-pacote-servico-id">
+        </div>
+
         <div>
           <label class="block text-sm text-gray-400 mb-1">Observação</label>
           <textarea id="ag-obs" rows="2" maxlength="500"
@@ -518,19 +722,34 @@ const AgendaPage = {
         const termo = input.value.trim();
         if (termo.length < 2) { results.classList.add('hidden'); return; }
 
-        const r = await Api.call('pesquisarClientes', { termo });
-        if (r.ok && r.data.length > 0) {
-          results.innerHTML = r.data.map(c => `
-            <div class="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm" onclick="AgendaPage.selecionarCliente('${c.id}','${UI.escapeHtml(c.nome)}')">
-              <div class="text-white">${UI.escapeHtml(c.nome)}</div>
-              <div class="text-gray-500 text-xs">${UI.formatarTelefone(c.telefone) || c.email || ''}</div>
-            </div>
-          `).join('');
+        const locais = (Store.get('clientes') || []).filter((c) => {
+          const nome = String(c.nome || '').toLowerCase();
+          const tel = String(c.telefone || '').replace(/\D/g, '');
+          const t = termo.toLowerCase();
+          return nome.includes(t) || tel.includes(t.replace(/\D/g, ''));
+        }).slice(0, 20);
+
+        const renderResultados = (lista) => {
+          if (lista.length > 0) {
+            results.innerHTML = lista.map(c => `
+              <div class="px-4 py-2 hover:bg-gray-800 cursor-pointer text-sm" onclick="AgendaPage.selecionarCliente('${c.id}','${UI.escapeHtml(c.nome)}')">
+                <div class="text-white">${UI.escapeHtml(c.nome)}</div>
+                <div class="text-gray-500 text-xs">${UI.formatarTelefone(c.telefone) || c.email || ''}</div>
+              </div>
+            `).join('');
+          } else {
+            results.innerHTML = '<div class="px-4 py-2 text-gray-500 text-sm">Nenhum cliente encontrado</div>';
+          }
           results.classList.remove('hidden');
-        } else {
-          results.innerHTML = '<div class="px-4 py-2 text-gray-500 text-sm">Nenhum cliente encontrado</div>';
-          results.classList.remove('hidden');
+        };
+
+        if (locais.length > 0) {
+          renderResultados(locais);
+          return;
         }
+
+        const r = await Api.call('pesquisarClientes', { termo });
+        renderResultados(r.ok ? (r.data || []) : []);
       }, 300);
     });
 
@@ -545,6 +764,189 @@ const AgendaPage = {
     document.getElementById('ag-cliente-id').value = id;
     document.getElementById('ag-cliente-busca').value = nome;
     document.getElementById('ag-cliente-results').classList.add('hidden');
+    this._carregarPacotesClienteNoModal(id);
+  },
+
+
+  _formatLocalIso(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    const hh = String(dateObj.getHours()).padStart(2, '0');
+    const mm = String(dateObj.getMinutes()).padStart(2, '0');
+    const ss = String(dateObj.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+  },
+
+  _parseIsoLocalParts(isoValue) {
+    const str = String(isoValue || '');
+    const m = str.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}):(\d{2})/);
+    if (m) {
+      return { dateKey: m[1], minutes: (parseInt(m[2], 10) * 60) + parseInt(m[3], 10) };
+    }
+
+    const d = new Date(str);
+    if (Number.isNaN(d.getTime())) return null;
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { dateKey, minutes: (d.getHours() * 60) + d.getMinutes() };
+  },
+
+  _slotToMinutes(timeSlot) {
+    const [h, m] = String(timeSlot || '00:00').split(':');
+    return ((parseInt(h, 10) || 0) * 60) + (parseInt(m, 10) || 0);
+  },
+
+  _mergeAgendamentosComPendentes(agendamentosServidor, datasServidor) {
+    const serverList = Array.isArray(agendamentosServidor) ? agendamentosServidor : [];
+    const datasSet = new Set((datasServidor || []).map(String));
+    const now = Date.now();
+
+    const localValidos = (Store.get('agendamentos') || []).filter((a) => {
+      if (!a) return false;
+      const dia = String(a.dia_key || this._parseIsoLocalParts(a.inicio_iso)?.dateKey || '').substring(0, 10);
+      if (datasSet.size > 0 && !datasSet.has(dia)) return false;
+
+      if (!a._optimistic) return true;
+      const created = parseInt(a._createdLocalTs, 10) || now;
+      return (now - created) < 300000;
+    });
+
+    const merged = new Map();
+    localValidos.forEach((a) => merged.set(String(a.id), a));
+    serverList.forEach((a) => {
+      const prev = merged.get(String(a.id)) || {};
+      merged.set(String(a.id), { ...prev, ...a, _optimistic: false });
+    });
+
+    return Array.from(merged.values());
+  },
+
+  _atualizarAgendamentoLocal(id, patch) {
+    this._ultimaMutacaoLocalTs = Date.now();
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const anterior = { ...lista[idx] };
+    lista[idx] = { ...lista[idx], ...patch, _optimistic: true, _createdLocalTs: Date.now() };
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return anterior;
+  },
+
+  _inserirAgendamentoLocal(ag) {
+    this._ultimaMutacaoLocalTs = Date.now();
+    const lista = [...(Store.get('agendamentos') || [])];
+    lista.push(ag);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+  },
+
+  _removerAgendamentoLocal(id) {
+    this._ultimaMutacaoLocalTs = Date.now();
+    const lista = [...(Store.get('agendamentos') || [])];
+    const idx = lista.findIndex(a => String(a.id) === String(id));
+    if (idx < 0) return null;
+    const removido = lista[idx];
+    lista.splice(idx, 1);
+    Store.set('agendamentos', lista);
+    this._renderGrade();
+    return removido;
+  },
+
+  async _sincronizarAgendaSilenciosa() {
+    try {
+      const semanaKey = Store.get('semanaKey');
+      const profFiltro = Store.get('profissionalFiltro');
+      const dados = { semana_key: semanaKey };
+      if (profFiltro && profFiltro !== 'all') dados.profissional_id = profFiltro;
+
+      const r = await Api.call('listarAgendaSemana', dados, { retries: 1, timeout: 15000 });
+      if (r.ok && r.data) {
+        const datas = Array.isArray(r.data.datas) ? r.data.datas : (Store.get('datas') || []);
+        const servidor = Array.isArray(r.data.agendamentos) ? r.data.agendamentos : [];
+        const atuais = Store.get('agendamentos') || [];
+
+        const teveMutacaoRecente = (Date.now() - (this._ultimaMutacaoLocalTs || 0)) < 20000;
+        const manterAtuais = servidor.length === 0 && atuais.length > 0;
+        const suspeitaRespostaParcial = teveMutacaoRecente && servidor.length > 0 && servidor.length < atuais.length;
+
+        const agsMerged = (manterAtuais || suspeitaRespostaParcial)
+          ? this._mergeAgendamentosComPendentes([...servidor, ...atuais], datas)
+          : this._mergeAgendamentosComPendentes(servidor, datas);
+
+        Store.setMultiple({
+          datas,
+          agendamentos: agsMerged,
+          bloqueios: Array.isArray(r.data.bloqueios) ? r.data.bloqueios : (Store.get('bloqueios') || [])
+        });
+        this._renderGrade();
+      }
+    } catch (_) {
+      // sincronização silenciosa (sem toast)
+    }
+  },
+
+
+  async _carregarPacotesClienteNoModal(clienteId) {
+    const area = document.getElementById('ag-pacotes-area');
+    const list = document.getElementById('ag-pacotes-list');
+    if (!area || !list || !clienteId) return;
+
+    const r = await Api.call('listarPacotesCliente', { cliente_id: clienteId });
+    if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) {
+      area.classList.add('hidden');
+      list.innerHTML = '';
+      document.getElementById('ag-pacote-vendido-id').value = '';
+      document.getElementById('ag-pacote-servico-id').value = '';
+      return;
+    }
+
+    const opcoes = [];
+    r.data.forEach((v) => {
+      (v.saldos || []).forEach((s) => {
+        const restante = parseInt(s.qtd_restante, 10) || 0;
+        if (restante > 0) opcoes.push({
+          pacote_vendido_id: v.id,
+          pacote_nome: v.modelo_nome || 'Pacote',
+          servico_id: s.servico_id,
+          servico_nome: s.servico_nome,
+          restante
+        });
+      });
+    });
+
+    if (opcoes.length === 0) {
+      area.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+
+    area.classList.remove('hidden');
+    list.innerHTML = opcoes.map((o) => `
+      <button type="button" data-pacote="${o.pacote_vendido_id}" data-servico="${o.servico_id}" class="ag-pacote-opcao w-full text-left bg-gray-900 border border-gray-700 rounded-xl p-2 hover:border-blue-500 transition-colors"
+        onclick="AgendaPage.selecionarServicoPacote('${o.pacote_vendido_id}','${o.servico_id}')">
+        <div class="text-sm text-white">${UI.escapeHtml(o.pacote_nome)} · ${UI.escapeHtml(o.servico_nome)}</div>
+        <div class="text-xs text-emerald-400">Restante: ${o.restante}</div>
+      </button>
+    `).join('');
+  },
+
+  selecionarServicoPacote(pacoteVendidoId, servicoId) {
+    const pv = document.getElementById('ag-pacote-vendido-id');
+    const ps = document.getElementById('ag-pacote-servico-id');
+    if (pv) pv.value = pacoteVendidoId;
+    if (ps) ps.value = servicoId;
+
+    const servSel = document.getElementById('ag-servico');
+    if (servSel) servSel.value = servicoId;
+
+    document.querySelectorAll('.ag-pacote-opcao').forEach((el) => {
+      const ativo = el.getAttribute('data-pacote') === pacoteVendidoId && el.getAttribute('data-servico') === servicoId;
+      el.classList.toggle('border-blue-500', ativo);
+      el.classList.toggle('bg-blue-500/10', ativo);
+    });
+
+    UI.info('Serviço do pacote selecionado para este agendamento.');
   },
 
   async novoClienteRapido() {
@@ -613,22 +1015,51 @@ const AgendaPage = {
       servico_id: document.getElementById('ag-servico').value,
       inicio_iso: data + 'T' + hora + ':00',
       tags: tags,
-      obs: document.getElementById('ag-obs').value.trim()
+      obs: document.getElementById('ag-obs').value.trim(),
+      pacote_vendido_id: document.getElementById('ag-pacote-vendido-id')?.value || '',
+      pacote_servico_id: document.getElementById('ag-pacote-servico-id')?.value || ''
     };
 
-    const btn = document.getElementById('ag-salvar');
-    btn.disabled = true;
-    btn.textContent = 'Salvando...';
+    const servSel = (Store.get('servicos') || []).find(s => s.id === dados.servico_id);
+    const duracao = parseInt(servSel?.duracao_min, 10) || APP_CONFIG.INTERVALO_MIN;
+    const inicio = new Date(dados.inicio_iso);
+    const fim = new Date(inicio.getTime() + duracao * 60000);
+    const cliente = (Store.get('clientes') || []).find(c => c.id === dados.cliente_id);
+    const tempId = 'tmp_' + Date.now();
+
+    const pendId = 'pend_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    this._addPendencia({ id: pendId, tipo: 'criarAgendamento', dados });
+
+    this._inserirAgendamentoLocal({
+      id: tempId,
+      ...dados,
+      _clienteNome: cliente?.nome || '',
+      _optimistic: true,
+      _createdLocalTs: Date.now(),
+      _pendenciaId: pendId,
+      fim_iso: this._formatLocalIso(fim),
+      status: APP_CONFIG.STATUS.MARCADO,
+      dia_key: dados.inicio_iso.substring(0, 10)
+    });
+
+    modal.close();
 
     const r = await Api.call('criarAgendamento', dados);
     if (r.ok) {
+      this._removePendencia(pendId);
+      this._atualizarAgendamentoLocal(tempId, { id: r.data.id, _pendenciaId: '' });
       UI.success('Agendamento criado!');
-      modal.close();
-      this.render(document.getElementById('page-content'));
+      this._sincronizarAgendaSilenciosa();
     } else {
-      UI.error(r.msg);
-      btn.disabled = false;
-      btn.textContent = 'Agendar';
+      const msg = String(r.msg || '').toLowerCase();
+      const erroPacoteOuConflito = msg.includes('saldo') || msg.includes('pacote') || msg.includes('conflito') || msg.includes('não encontrado');
+      if (erroPacoteOuConflito) {
+        this._removePendencia(pendId);
+        this._removerAgendamentoLocal(tempId);
+        UI.error(r.msg || 'Não foi possível criar o agendamento.');
+        return;
+      }
+      UI.warning('Agendamento salvo localmente e será sincronizado automaticamente.');
     }
   },
 
@@ -723,18 +1154,25 @@ const AgendaPage = {
       size: 'md',
       footer: canCancel ? `
         <button onclick="AgendaPage.cancelar('${agend.id}')" class="px-4 py-2 rounded-xl bg-red-600/20 text-red-400 hover:bg-red-600/30 text-sm font-medium">Cancelar Agendamento</button>
+        <button onclick="AgendaPage.excluir('${agend.id}')" class="px-4 py-2 rounded-xl bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 text-sm font-medium">Excluir</button>
         <button onclick="UI.closeModal()" class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium">Fechar</button>
-      ` : `<button onclick="UI.closeModal()" class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium">Fechar</button>`
+      ` : `
+        <button onclick="AgendaPage.excluir('${agend.id}')" class="px-4 py-2 rounded-xl bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 text-sm font-medium">Excluir</button>
+        <button onclick="UI.closeModal()" class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm font-medium">Fechar</button>
+      `
     });
   },
 
   async mudarStatus(id, status) {
+    const anterior = this._atualizarAgendamentoLocal(id, { status });
+    UI.closeModal();
+
     const r = await Api.call('marcarStatus', { id, status });
     if (r.ok) {
       UI.success(r.msg);
-      UI.closeModal();
-      this.render(document.getElementById('page-content'));
+      this._sincronizarAgendaSilenciosa();
     } else {
+      if (anterior) this._atualizarAgendamentoLocal(id, { status: anterior.status });
       UI.error(r.msg);
     }
   },
@@ -743,13 +1181,33 @@ const AgendaPage = {
     const ok = await UI.confirm('Cancelar agendamento', 'Tem certeza que deseja cancelar este agendamento?');
     if (!ok) return;
 
+    const anterior = this._atualizarAgendamentoLocal(id, { status: APP_CONFIG.STATUS.CANCELADO });
+    UI.closeModal();
+
     const r = await Api.call('cancelarAgendamento', { id });
     if (r.ok) {
       UI.success('Agendamento cancelado.');
-      UI.closeModal();
-      this.render(document.getElementById('page-content'));
+      this._sincronizarAgendaSilenciosa();
     } else {
+      if (anterior) this._atualizarAgendamentoLocal(id, { status: anterior.status });
       UI.error(r.msg);
+    }
+  },
+
+  async excluir(id) {
+    const ok = await UI.confirm('Excluir agendamento', 'Deseja realmente excluir este agendamento? Se houver baixa de pacote, o saldo será estornado.');
+    if (!ok) return;
+
+    const removido = this._removerAgendamentoLocal(id);
+    UI.closeModal();
+
+    const r = await Api.call('excluirAgendamento', { id });
+    if (r.ok) {
+      UI.success(r.msg || 'Agendamento excluído.');
+      this._sincronizarAgendaSilenciosa();
+    } else {
+      if (removido) this._inserirAgendamentoLocal(removido);
+      UI.error(r.msg || 'Erro ao excluir.');
     }
   },
 
@@ -843,18 +1301,39 @@ const AgendaPage = {
       const fim = document.getElementById('bq-fim').value;
       if (!inicio || !fim) { UI.warning('Horários são obrigatórios.'); return; }
 
-      const r = await Api.call('criarBloqueio', {
+      const payload = {
         profissional_id: document.getElementById('bq-profissional').value,
         inicio_iso: inicio + ':00',
         fim_iso: fim + ':00',
         motivo: document.getElementById('bq-motivo').value.trim()
-      });
+      };
+
+      const tempBloq = {
+        id: 'tmp_bq_' + Date.now(),
+        semana_key: Store.get('semanaKey'),
+        ...payload,
+        _optimistic: true,
+        _createdLocalTs: Date.now()
+      };
+
+      const bloqs = [...(Store.get('bloqueios') || []), tempBloq];
+      Store.set('bloqueios', bloqs);
+      this._renderGrade();
+      modal.close();
+
+      const r = await Api.call('criarBloqueio', payload);
 
       if (r.ok) {
+        const atual = [...(Store.get('bloqueios') || [])];
+        const idx = atual.findIndex(b => b.id === tempBloq.id);
+        if (idx >= 0) atual[idx].id = r.data.id;
+        Store.set('bloqueios', atual);
+        this._renderGrade();
         UI.success('Horário bloqueado!');
-        modal.close();
-        this.render(document.getElementById('page-content'));
+        this._sincronizarAgendaSilenciosa();
       } else {
+        Store.set('bloqueios', (Store.get('bloqueios') || []).filter(b => b.id !== tempBloq.id));
+        this._renderGrade();
         UI.error(r.msg);
       }
     });
