@@ -3,7 +3,7 @@
  * Cache estratégico para PWA
  */
 
-const CACHE_NAME = 'minha-agenda-v2.0.0';
+const CACHE_NAME = 'minha-agenda-v2.0.4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -74,19 +74,42 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Local static assets — cache first, fallback to network
+  // HTML/JS/CSS locais — network first para evitar app velho em cache
+  var isCoreRuntime = (event.request.destination === 'script') ||
+    (event.request.destination === 'style') ||
+    (event.request.mode === 'navigate') ||
+    /\.(js|css|html)$/i.test(url.pathname);
+
+  if (isCoreRuntime) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          var responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
+        .then((response) => {
+          if (response) return response;
+          if (event.request.mode === 'navigate') return caches.match('/index.html');
+          return response;
+        })
+    );
+    return;
+  }
+
+  // Assets locais estáticos (imagens/ícones) — cache first
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
         if (response) return response;
         return fetch(event.request).then((networkResponse) => {
-          const responseClone = networkResponse.clone();
+          var responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
           return networkResponse;
         });
       })
       .catch(() => {
-        // Offline fallback
         if (event.request.mode === 'navigate') {
           return caches.match('/index.html');
         }
