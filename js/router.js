@@ -43,12 +43,12 @@ const Router = {
     const container = document.getElementById('page-content');
     if (container) {
       container.innerHTML = UI.loader();
-      try {
-        this._routes[page](container);
-      } catch (e) {
-        console.error('Erro ao renderizar página:', e);
-        container.innerHTML = `<div class="p-8 text-center text-red-400">Erro ao carregar página: ${UI.escapeHtml(e.message)}</div>`;
-      }
+      Promise.resolve()
+        .then(() => this._routes[page](container))
+        .catch((e) => {
+          console.error('Erro ao renderizar página:', e);
+          container.innerHTML = `<div class="p-8 text-center text-red-400">Erro ao carregar página: ${UI.escapeHtml(e.message)}</div>`;
+        });
     }
   },
 
