@@ -25,7 +25,7 @@ const UI = {
     };
 
     const toast = document.createElement('div');
-    toast.className = `flex items-center gap-3 px-4 py-3 rounded-xl border ${colors[type] || colors.info} text-white shadow-2xl transform translate-x-full transition-transform duration-300 max-w-sm`;
+    toast.className = `popup-anim flex items-center gap-3 px-4 py-3 rounded-xl border ${colors[type] || colors.info} text-white shadow-2xl transform translate-x-full transition-transform duration-300 max-w-sm`;
     toast.innerHTML = `
       <span class="flex-shrink-0">${icons[type] || icons.info}</span>
       <span class="text-sm font-medium flex-1">${this.escapeHtml(message)}</span>
@@ -65,7 +65,7 @@ const UI = {
     overlay.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-200';
 
     overlay.innerHTML = `
-      <div class="modal-content bg-gray-800 rounded-2xl shadow-2xl w-full ${sizeClasses[size] || sizeClasses.md} transform scale-95 transition-transform duration-200 max-h-[90vh] flex flex-col border border-gray-700">
+      <div class="modal-content popup-anim bg-gray-800 rounded-2xl shadow-2xl w-full ${sizeClasses[size] || sizeClasses.md} transform scale-95 transition-transform duration-200 max-h-[90vh] flex flex-col border border-gray-700">
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-700">
           <h2 class="text-lg font-semibold text-white">${this.escapeHtml(title || '')}</h2>
           <button id="modal-close-btn" class="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-700 transition-colors">
